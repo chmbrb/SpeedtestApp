@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+
+<div class="container">
+    <h2>HOME</h2>
+    <!-- <img src="{{ url_for('static', filename='dog.png') }}" class="icon" /> -->
+    <!-- <h3>Enter Prompt</h3> -->
+    <!-- add either a link to the official openai documentation or provide hints here -->
+    <!-- <form id="promptForm" action="/" method="post">
+        <div class="input-group">
+            <span class="input-group-text">
+                Prompt
+            </span>
+            <textarea class="form-control" name="prompt" id="openAiPromptInput" rows="10" cols="20"
+                placeholder="{{ input_prompt }}" required></textarea>
+        </div>
+        <input type="submit" class="btn btn-primary" value="Generate response" />
+    </form> -->
+</div>
+
+<!-- {% if data %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-1">
+            <span class="response-heading">Chat API: </span>
+        </div>
+        <div class="col-md">
+            <span class="response-data">"{{ data }}"</span>
+        </div>
+    </div>
+</div>
+{% endif %} -->
+
+{% endblock %}

@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+alembic = "*"
+python-dotenv = "*"
+pyodbc = "*"
+tabulate = "*"
+jinja2 = "*"
+weasyprint = "*"
+flask = "*"
+flask-sqlalchemy = "*"
+pandas = "==2.2.1"
+flask-table = "*"
+
+[dev-packages]
+ipython = "*"
+
+[requires]
+python_version = "3.12"

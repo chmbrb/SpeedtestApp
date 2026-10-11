@@ -1,0 +1,1 @@
+from .SpeedtestService import speedtest_service
