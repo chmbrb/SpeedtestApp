@@ -3,7 +3,7 @@ GO
 SET QUOTED_IDENTIFIER ON
 GO
 
--- older version
+-- SQL Server version as deployed (note: @LocalTimezone is ignored; zone is hard-coded)
 CREATE PROCEDURE [dbo].[spSpeedtestResults_GetAll]
     @LocalTimezone  NVARCHAR(64)
 AS
@@ -11,7 +11,11 @@ BEGIN
     DECLARE @Mbps DECIMAL = 125000.00
 
     SELECT
-        TRY_CONVERT(DATETIME2, JSON_VALUE(RawData, '$.timestamp'), 120) AT TIME ZONE 'UTC' AT TIME ZONE @LocalTimezone AS 'localtime'
+        FORMAT(TRY_CONVERT(DATETIME2,
+                JSON_VALUE(RawData, '$.timestamp'), 120)
+                AT TIME ZONE 'UTC'
+                AT TIME ZONE 'US Mountain Standard Time', 'yyyy-MM-dd HH:mm:ss')
+                AS 'localtime'
         , CASE 
             WHEN JSON_VALUE(RawData, '$.packetLoss') IS NULL THEN 0
             ELSE ROUND(CAST(JSON_VALUE(RawData, '$.packetLoss') AS FLOAT), 4)

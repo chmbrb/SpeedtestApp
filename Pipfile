@@ -6,7 +6,8 @@ name = "pypi"
 [packages]
 alembic = "*"
 python-dotenv = "*"
-pyodbc = "*"
+pyodbc = "*"  # only used by scripts/export_speedtests.py (SQL Server export)
+psycopg = {extras = ["binary"], version = "*"}
 tabulate = "*"
 jinja2 = "*"
 weasyprint = "*"

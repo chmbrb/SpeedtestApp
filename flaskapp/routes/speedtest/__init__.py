@@ -46,8 +46,6 @@ def index():
         return render_template(f'speedtest/index.html', stats=stats, data=data, frequency=frequency, freq_title=freq_title)
     except TemplateNotFound as e:
         abort(404)
-    except Exception as e:
-        abort(404)
 
   
 # @speedtest.route('/', defaults={'page': 'index'}, methods=["GET"])
