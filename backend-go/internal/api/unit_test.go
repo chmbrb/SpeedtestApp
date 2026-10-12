@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -310,6 +311,8 @@ func TestQueryParamValidation(t *testing.T) {
 		"/api/v1/results?limit=501":                                         "limit",
 		"/api/v1/results?limit=abc":                                         "limit",
 		"/api/v1/results?cursor=garbage":                                    "cursor",
+		"/api/v1/results?cursor=":                                           "cursor",
+		"/api/v1/stats/timeseries?interval=":                                "interval",
 		"/api/v1/stats/summary?provider=x":                                  "provider",
 		"/api/v1/stats/timeseries?interval=minute":                          "interval",
 		"/api/v1/stats/timeseries?groupBy=isp":                              "groupBy",
@@ -348,6 +351,21 @@ func TestCursorRoundTrip(t *testing.T) {
 	for _, bad := range []string{"", "!!!", "e30", "bnVsbA"} {
 		if _, ok := decodeCursor(bad); ok {
 			t.Errorf("decodeCursor(%q) accepted", bad)
+		}
+	}
+}
+
+// Regression: a cursor whose id was 36 characters of anything reached the database as a uuid and came back as a 500.
+func TestCursorWithAnIdThatIsNotAUUIDIsRefused(t *testing.T) {
+	for _, id := range []string{"zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz", "11111111-1111-1111-1111-11111111111g", "{11111111-1111-1111-1111-1111111111}", ""} {
+		raw, _ := json.Marshal(map[string]string{"t": "2026-06-01T06:35:20Z", "id": id})
+		enc := base64.RawURLEncoding.EncodeToString(raw)
+		if _, ok := decodeCursor(enc); ok {
+			t.Errorf("cursor with id %q was accepted", id)
+		}
+		rec := do(t, newTestServer(&fakeStore{}), "GET", "/api/v1/results?cursor="+enc, "", "")
+		if rec.Code != 400 {
+			t.Errorf("id %q: status %d, want 400", id, rec.Code)
 		}
 	}
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { notificationOptions, parsePush, safeUrl } from '../lib/pushMessage'
 import { isIOS, pushSupport, sameKey, urlBase64ToBytes, type Env } from '../lib/platform'
-import { explain } from '../state/usePush'
+import { explain } from '../lib/explain'
 import { ApiError } from '../api/client'
 
 const ORIGIN = 'https://192.168.0.7:8443'

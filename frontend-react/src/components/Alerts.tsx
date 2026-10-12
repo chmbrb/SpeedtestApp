@@ -1,6 +1,6 @@
-import type { ActiveAlert, NotificationStatus } from '../api/client'
-import { dateTime } from '../lib/format'
-import { describeRules, eventLabel } from '../lib/alerts'
+import type { ActiveAlert, NotificationStatus } from '../shared/api/client'
+import { dateTime } from '../shared/lib/format'
+import { describeRules, eventLabel } from '../shared/lib/alerts'
 import { DeviceNotifications } from './DeviceNotifications'
 import { AlertIcon, InfoIcon } from './ui'
 

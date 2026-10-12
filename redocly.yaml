@@ -1,6 +1,8 @@
 extends:
   - recommended
 rules:
+  # TestEvent documents what each server-sent event carries; OpenAPI 3.1 has no way to point a stream at it
+  no-unused-components: off
   # localhost is the intended development server
   no-server-example.com: off
   # GET /devices takes no input, so there is no client error to document

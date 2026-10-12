@@ -1,6 +1,6 @@
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { api, unwrap, type Interval } from './client'
-import type { Filters, Window } from '../state/filters'
+import { api, unwrap, type Interval } from '../shared/api/client'
+import type { Filters, Window } from '../shared/state/filters'
 
 const REFRESH = 60_000
 

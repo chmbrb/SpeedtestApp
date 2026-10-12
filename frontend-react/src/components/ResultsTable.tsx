@@ -1,6 +1,6 @@
-import type { Result } from '../api/client'
-import { colorVar, slotFor } from '../lib/colors'
-import { dateTime, label, mbps, ms, pct, providerName } from '../lib/format'
+import type { Result } from '../shared/api/client'
+import { colorVar, slotFor } from '../shared/lib/colors'
+import { dateTime, label, mbps, ms, pct, providerName } from '../shared/lib/format'
 
 export function ResultsTable({ results, slots, hasMore, loadingMore, onMore, loading, error, onRetry, onReset }: {
   results: Result[]

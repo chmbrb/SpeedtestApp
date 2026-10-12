@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 import { scaleLinear } from 'd3-scale'
 import { line } from 'd3-shape'
-import type { Result, Summary } from '../api/client'
-import { ago, count, label, mbps, ms, pct, providerName } from '../lib/format'
-import { judgeSpeed, delta, deltaPoints, type Delta, type Tone } from '../lib/stats'
+import type { Result, Summary } from '../shared/api/client'
+import { ago, count, label, mbps, ms, pct, providerName } from '../shared/lib/format'
+import { judgeSpeed, delta, deltaPoints, type Delta, type Tone } from '../shared/lib/stats'
 import { useWidth } from '../lib/useWidth'
 import { AlertIcon, ArrowDownIcon, ArrowUpIcon, InfoIcon, MinusIcon, OkIcon } from './ui'
 

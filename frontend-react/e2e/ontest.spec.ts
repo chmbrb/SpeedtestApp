@@ -31,7 +31,7 @@ test.describe('run a test on the server (Ookla)', () => {
   test.beforeEach(async ({ request }) => {
     rmSync(FAIL_FLAG, { force: true })
     const caps = await (await request.get('/api/v1/capabilities')).json()
-    test.skip(!caps.ookla.available, 'start the backend with OOKLA_ACCEPT_LICENSE=yes and OOKLA_PATH=e2e/fake-speedtest.sh (see the README)')
+    test.skip(!caps.ookla.available, 'start the backend with OOKLA_ACCEPT_LICENSE=yes and OOKLA_PATH=frontend-shared/e2e/fake-speedtest.sh (see the README)')
     // let any server test left over from an earlier run finish (only server tests occupy the single slot)
     await expect.poll(async () => {
       const items = (await (await request.get('/api/v1/tests?state=queued,running&limit=100')).json()).items

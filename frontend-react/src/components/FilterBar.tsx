@@ -1,7 +1,7 @@
-import type { Device } from '../api/client'
-import { INTERVALS, RANGES, defaultFilters, type Filters } from '../state/filters'
+import type { Device } from '../shared/api/client'
+import { INTERVALS, RANGES, defaultFilters, type Filters } from '../shared/state/filters'
 import { Menu, Segmented } from './ui'
-import { count } from '../lib/format'
+import { count } from '../shared/lib/format'
 
 const PROVIDER_CHOICES = [
   { value: 'ookla', label: 'Ookla' },

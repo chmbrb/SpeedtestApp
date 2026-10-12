@@ -2,26 +2,12 @@ import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent }
 import { scaleLinear, scaleTime } from 'd3-scale'
 import { area, line } from 'd3-shape'
 import { bisector } from 'd3-array'
-import type { Interval } from '../api/client'
-import { bucketLabel } from '../lib/format'
-import { intervalMs } from '../state/filters'
-import { HOUR } from '../lib/time'
+import type { Interval } from '../shared/api/client'
+import { bucketLabel } from '../shared/lib/format'
+import { intervalMs } from '../shared/state/filters'
+import { HOUR } from '../shared/lib/time'
 import { useWidth } from '../lib/useWidth'
-
-export interface ChartPoint {
-  t: number
-  v: number | null
-  lo: number | null
-  hi: number | null
-  n: number
-}
-
-export interface ChartSeries {
-  id: string
-  label: string
-  color: string
-  points: ChartPoint[]
-}
+import type { ChartPoint, ChartSeries } from '../shared/lib/chartSeries'
 
 const H = 224
 const M = { top: 24, right: 16, bottom: 28, left: 48 }

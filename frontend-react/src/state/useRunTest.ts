@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
-import { api, ApiError, unwrap, type ConnectionType, type Result, type TestRun } from '../api/client'
-import { Ndt7Error, REACH_MLAB, runNdt7 } from '../lib/ndt7'
-import { initialLive, liveReducer, progressActions, type ProgressEvent } from './liveTest'
+import { api, ApiError, unwrap, type ConnectionType, type Result, type TestRun } from '../shared/api/client'
+import { Ndt7Error, REACH_MLAB, runNdt7 } from '../shared/lib/ndt7'
+import { initialLive, liveReducer, progressActions, type ProgressEvent } from '../shared/state/liveTest'
 
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 

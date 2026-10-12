@@ -3,3 +3,4 @@ speedtests_export.csv
 .schemathesis/
 collector-go/dist/
 __pycache__/
+backend-rust/target/

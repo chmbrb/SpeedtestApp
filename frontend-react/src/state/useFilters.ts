@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { parseFilters, serializeFilters, type Filters } from './filters'
+import { parseFilters, serializeFilters, type Filters } from '../shared/state/filters'
 
 /** Filters live in the URL query string, so any view can be bookmarked or shared and Back/Forward work. */
 export function useFilters(): [Filters, (patch: Partial<Filters>) => void, () => void] {

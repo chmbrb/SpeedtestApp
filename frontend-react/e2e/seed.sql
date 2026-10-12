@@ -1,6 +1,6 @@
 -- Extra history for the browser tests: a wireless laptop (Ookla) and a wireless phone (NDT7), on top of a wired server's
 -- results. Run it ONCE against a disposable copy of the database, never your real one:
---   psql "$DISPOSABLE_DB_URL" -f frontend-react/e2e/seed.sql
+--   psql "$DISPOSABLE_DB_URL" -f frontend-shared/e2e/seed.sql
 -- It does nothing if the devices already exist.
 DO $$
 BEGIN

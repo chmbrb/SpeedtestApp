@@ -1,17 +1,5 @@
 import { useEffect, useState } from 'react'
-
-export const MINUTE = 60_000
-export const HOUR = 60 * MINUTE
-export const DAY = 24 * HOUR
-
-/** The viewer's IANA zone; chart buckets are aligned to it so a "day" matches the viewer's calendar day. */
-export function browserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-}
+import { MINUTE } from '../shared/lib/time'
 
 /** Current time, floored to the minute and refreshed every `everyMs`, so query keys stay stable between ticks. */
 export function useNow(everyMs = MINUTE): number {

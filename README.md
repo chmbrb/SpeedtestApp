@@ -9,8 +9,12 @@ This project runs speed tests on a schedule, stores every result in PostgreSQL, 
 |---|---|
 | Backend API (Go) | `backend-go/` |
 | Dashboard (React, PWA, dark by default) | `frontend-react/` |
+| The same dashboard in Svelte (passes the same browser tests) | `frontend-svelte/` |
+| Code both dashboards share, and their browser tests | `frontend-shared/` (copied in by `scripts/sync-shared.sh`) |
+| Second backend (Rust, same contract and behaviour as Go) | `backend-rust/` |
 | Collector: runs the tests on a device and sends the results | `collector-go/`, guide in `docs/COLLECTOR.md` |
 | Docker stack: database, backend, web app, ntfy | `deploy/`, guide in `docs/DEPLOY.md` |
+| Go + React or Rust + Svelte: measurements and advice | `docs/COMPARISON.md` |
 | API contract (OpenAPI) | `docs/openapi.yaml` |
 | Roadmap | `docs/PLAN.md` |
 

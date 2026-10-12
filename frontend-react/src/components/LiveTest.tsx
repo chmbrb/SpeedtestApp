@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 import { scaleLinear } from 'd3-scale'
 import { line } from 'd3-shape'
-import type { Result } from '../api/client'
-import { label as connectionLabel, mbps, ms, pct, providerName } from '../lib/format'
-import { judgeSpeed } from '../lib/stats'
+import type { Result } from '../shared/api/client'
+import { label as connectionLabel, mbps, ms, pct, providerName } from '../shared/lib/format'
+import { judgeSpeed } from '../shared/lib/stats'
 import { useWidth } from '../lib/useWidth'
-import type { LiveState, Sample } from '../state/liveTest'
+import type { LiveState, Sample } from '../shared/state/liveTest'
 import { AlertIcon, CheckIcon, InfoIcon, OkIcon } from './ui'
 
 const STEPS = [

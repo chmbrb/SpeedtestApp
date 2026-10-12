@@ -474,7 +474,16 @@ paths:
           description: Event stream
           content:
             text/event-stream:
-              schema: { $ref: "#/components/schemas/TestEvent" }
+              # Each item of the stream is an object with the SSE fields. What its `data` line holds (JSON text) is described by
+              # `TestEvent` (kept in components, and used by the frontends); 3.1 cannot say that a string holds JSON of a schema.
+              schema:
+                type: object
+                required: [event, data]
+                properties:
+                  event: { type: string }
+                  data: { type: string }
+                  id: { type: string }
+              x-event-data-schema: { $ref: "#/components/schemas/TestEvent" }
         "404": { $ref: "#/components/responses/Problem" }
 
   /api/v1/tests/{id}/result:
@@ -938,16 +947,8 @@ components:
           minLength: 1
           maxLength: 64
           description: |
-            Free-text name for a browser test. Ignored for `mode: server` (always the server's own name)
-            and when an agent token is supplied (the token decides).
-      # The rule in words: a browser test must say which device it is; a server test never needs to.
-      if:
-        properties:
-          mode: { const: browser }
-        required: [mode]
-      then:
-        required: [device]
-
+            Free-text name for a browser test. A browser test must say which device it is, unless an agent token is supplied
+            (the token decides), otherwise the answer is 400. Ignored for `mode: server` (always the server's own name).
     Test:
       type: object
       required: [id, provider, mode, device, connectionType, state, createdAt]

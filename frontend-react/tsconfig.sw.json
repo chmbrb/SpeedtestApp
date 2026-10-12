@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "lib": ["ES2023", "WebWorker"], "types": [], "noEmit": true },
-  "include": ["src/sw.ts", "src/lib/pushMessage.ts"],
+  "include": ["src/shared/sw.ts", "src/shared/lib/pushMessage.ts"],
   "exclude": []
 }

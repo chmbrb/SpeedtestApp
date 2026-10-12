@@ -10,9 +10,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // The service worker is our own file (src/sw.ts) because it also handles push notifications.
+      // The service worker is our own file (frontend-shared/sw.ts, copied to src/shared/) because it also handles push notifications.
       strategies: 'injectManifest',
-      srcDir: 'src',
+      srcDir: 'src/shared',
       filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],

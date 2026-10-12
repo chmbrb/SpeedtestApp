@@ -23,7 +23,7 @@ The e2e tests need the backend serving `dist/` on a **disposable copy** of your 
 run `e2e/seed.sql` once on that copy (it is idempotent, and the suite tells you if the data is missing). First run:
 `npx playwright install chromium`.
 For the on-demand tests, start the backend with the fake Ookla tool (it prints the real tool's `jsonl` shape in about 7 seconds and
-never touches a network): `OOKLA_ACCEPT_LICENSE=yes OOKLA_PATH=$PWD/frontend-react/e2e/fake-speedtest.sh`. Those tests skip
+never touches a network): `OOKLA_ACCEPT_LICENSE=yes OOKLA_PATH=$PWD/frontend-shared/e2e/fake-speedtest.sh`. Those tests skip
 themselves with that instruction when Ookla is off. The NDT7 tests run the real M-Lab client library against a local stand-in for
 M-Lab (`e2e/helpers/mlab-mock.ts`), so they need no internet.
 They cover filters and URL state, chart hover and keyboard use, the table view, theme persistence, a phone-width layout,
@@ -44,3 +44,10 @@ status section (with the API mocked, so every state can be shown).
   the device, with an "offline" banner.
 - **Filters live in the URL** (`?range=7d&device=laptop&connection=wireless&provider=ookla&interval=hour`), so any view can be
   bookmarked and Back/Forward work.
+
+## Shared code
+
+Everything that is not React (API client and types, formatting, statistics, filters, colours, alert wording, install and push logic,
+the service worker, the stylesheet, icons, and the browser tests) is in `../frontend-shared` and copied into `src/shared/`, `e2e/` and
+`public/` by `../scripts/sync-shared.sh`, because the Svelte app (`../frontend-svelte`) uses the same code and passes the same tests.
+**Edit `frontend-shared/`, never the copies.** `../scripts/sync-shared.sh --check` fails if they differ.

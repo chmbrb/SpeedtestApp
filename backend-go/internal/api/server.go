@@ -149,9 +149,9 @@ func (s *Server) listResults(w http.ResponseWriter, r *http.Request) {
 	f := parseFilter(q, &e)
 	limit := parseLimit(q, 100, 500, &e)
 	var after *store.Cursor
-	if c := q.Get("cursor"); c != "" {
+	if q.Has("cursor") { // present but empty is not "no cursor": the contract wants a real one
 		var ok bool
-		if after, ok = decodeCursor(c); !ok {
+		if after, ok = decodeCursor(q.Get("cursor")); !ok {
 			e.add("cursor", "is not a cursor returned by this API")
 		}
 	}
@@ -199,11 +199,11 @@ func (s *Server) timeseries(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var e errs
 	f := parseFilter(q, &e)
-	interval := q.Get("interval")
-	if interval == "" {
-		interval = "day"
-	} else if !slices.Contains(intervals, interval) {
-		e.add("interval", "must be one of %s", strings.Join(intervals, ", "))
+	interval := "day"
+	if q.Has("interval") { // present but empty is not "use the default": the contract's enum has no empty value
+		if interval = q.Get("interval"); !slices.Contains(intervals, interval) {
+			e.add("interval", "must be one of %s", strings.Join(intervals, ", "))
+		}
 	}
 	groupBy := enumList(q, "groupBy", groupFields, &e)
 	if len(groupBy) == 0 {

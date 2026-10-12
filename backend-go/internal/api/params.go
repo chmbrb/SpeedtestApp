@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -115,6 +116,8 @@ func parseLimit(q url.Values, def, max int, e *errs) int {
 	return n
 }
 
+var cursorIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 // Cursors are opaque to clients: base64url of {"t": time, "id": uuid}.
 func encodeCursor(c *store.Cursor) *string {
 	if c == nil {
@@ -131,7 +134,8 @@ func decodeCursor(s string) (*store.Cursor, bool) {
 		return nil, false
 	}
 	var c store.Cursor
-	if json.Unmarshal(b, &c) != nil || c.T.IsZero() || len(c.ID) != 36 {
+	// The id goes to the database as a uuid, so it must really be one (36 characters of anything else would be a 500).
+	if json.Unmarshal(b, &c) != nil || c.T.IsZero() || !cursorIDRe.MatchString(c.ID) {
 		return nil, false
 	}
 	return &c, true

@@ -146,8 +146,22 @@ All in `deploy/.env` (see `.env.example` for every setting). Common ones:
 | `OOKLA_ACCEPT_LICENSE` | see above |
 | `DEVICE_NAME`, `SERVER_CONNECTION_TYPE` | what tests run by the server itself are recorded as |
 
-Further tuning (alert thresholds, rate limits) uses the variables in `backend-go/README.md`; add them to the `backend` service's
+Further tuning (alert thresholds, rate limits) uses the variables in `backend-go/README.md` (the Rust backend reads the same ones); add them to the `backend` service's
 `environment:` in `docker-compose.yml`.
+
+## The Rust and Svelte version
+
+The same stack can run with the second implementation, a Rust backend and a Svelte web interface, in place of Go and React. Same
+database, same settings, same ports, same API; only the `backend` and `frontend` images change:
+
+```
+docker compose -f docker-compose.yml -f docker-compose.rust-svelte.yml up -d --build
+```
+
+Use the same two `-f` options for every later command (`logs`, `down`, `run --rm backend notify-test`, ...). Both versions keep their data
+in the same volumes, so you can switch back and forth: `down`, then `up` with the other set of files. The Rust image is built from
+`backend-rust/` and takes a few minutes the first time (it compiles everything from scratch); later builds reuse the compiled dependencies.
+`docs/COMPARISON.md` says what the two versions measured like.
 
 ## Upgrading
 

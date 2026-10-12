@@ -85,7 +85,16 @@ Caveats to keep visible in the UI and docs:
 - [x] 4b. Docker: `deploy/` compose stack (db, migrate, backend, frontend/nginx, private ntfy), `setup.sh`, Ookla download gated on `OOKLA_ACCEPT_LICENSE=yes` and checksum-pinned. Tested on real containers (rootless Podman via the Docker API)
 - [x] 5. Go collector (`collector-go/`): single static binary, Ookla + NDT7, store-and-forward spool, daemon or cron, per-device token, exit codes. Tested: unit (race), real backend + Postgres, real Ookla run, offline queue and flush, wrong token. Guide: `docs/COLLECTOR.md`
 - [x] 6. Retired the Python app (Flask app, Python collector, `run.sh`, Pipfile) and the legacy `POST /api/speedtests` endpoint; contract, generated types and tests updated
-- [ ] 7. Round 2 <- next: Rust backend and Svelte frontend against the same contract; compare
+- [x] 7. Round 2: Rust backend and Svelte frontend against the same contract; compare. Staged:
+  - [x] 7a. Rust backend (`backend-rust/`, axum + sqlx): read side (health, devices, results, summary, timeseries, static files) with the
+        same SQL and validation as Go; endpoints for features that come later answer as the contract's "off" states. Tested: unit,
+        HTTP-level against a real database, Schemathesis, and a differential run of Go and Rust on one database (`scripts/compare-backends.sh`),
+        which also found and fixed three bugs in the Go backend: a cursor whose id was 36 characters of anything answered 500, and an empty `cursor=` or `interval=` was accepted although the contract forbids it
+  - [x] 7b. Svelte frontend (`frontend-svelte/`, Svelte 5 + Vite) with parity to the React app. Both apps share `frontend-shared/` (logic, styles, service worker) and pass the same 49 browser tests
+  - [x] 7c. Rust: ingest, auth, rate limits, validation. Tested: unit, HTTP-level against a real database (the Go case list ported), Schemathesis, and the Go-vs-Rust comparison extended with generated and mutated payloads
+  - [x] 7d. Rust: on-demand tests and the live event stream. Tested: unit, HTTP-level (Go case list ported, including SSE replay/resume and a real runner), a 59-step Go-vs-Rust transcript of on-demand flows with a fake Ookla CLI, Schemathesis on both backends (found two contract wording issues, fixed in `openapi.yaml`)
+  - [x] 7e. Rust: notifications (ntfy) and Web Push. The monitor (slow / packet loss / gone quiet, reminders, recovery) is ported from the Go behaviour spec (its tests, README, rules and store), then checked by the same scenarios (`tests/notify.rs`, fake clock and sender, real database); Web Push (RFC 8291 encryption, RFC 8292 VAPID, endpoint allow-list, limits, expiry) has a fake browser that decrypts and verifies what is sent (`tests/push.rs`). The comparison script also covers the push endpoints and the notifications status
+  - [x] 7f. Compose option for Rust + Svelte (`deploy/docker-compose.rust-svelte.yml`, `backend-rust/Dockerfile`, `frontend-svelte/Dockerfile`; tested on real containers: healthy stack, notify-test through the private ntfy, 38 browser tests through nginx), benchmarks (`scripts/bench-backends.sh`) and the write-up `docs/COMPARISON.md`
 
 ## Assumptions (change if wrong)
 - Everything lives in this repo: `backend-go/`, `frontend-react/`, later `backend-rust/`, `frontend-svelte/`.

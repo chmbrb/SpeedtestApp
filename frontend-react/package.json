@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json",
-    "gen:api": "openapi-typescript ../docs/openapi.yaml -o src/api/schema.d.ts",
+    "gen:api": "openapi-typescript ../docs/openapi.yaml -o ../frontend-shared/src/api/schema.d.ts && ../scripts/sync-shared.sh",
     "gen:icons": "node scripts/make-icons.mjs",
     "e2e": "playwright test"
   },

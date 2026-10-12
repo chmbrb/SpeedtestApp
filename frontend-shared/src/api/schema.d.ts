@@ -582,8 +582,8 @@ export interface components {
              */
             connectionType: components["schemas"]["ConnectionType"];
             /**
-             * @description Free-text name for a browser test. Ignored for `mode: server` (always the server's own name)
-             *     and when an agent token is supplied (the token decides).
+             * @description Free-text name for a browser test. A browser test must say which device it is, unless an agent token is supplied
+             *     (the token decides), otherwise the answer is 400. Ignored for `mode: server` (always the server's own name).
              */
             device?: string;
         };
@@ -1263,7 +1263,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["TestEvent"];
+                    "text/event-stream": string;
                 };
             };
             404: components["responses"]["Problem"];

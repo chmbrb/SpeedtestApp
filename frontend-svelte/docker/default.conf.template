@@ -1,0 +1,20 @@
+# ${NGINX_LOCAL_RESOLVERS} is filled in by the nginx image from /etc/resolv.conf when the container starts.
+resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+
+# Port 80: people on your network, directly.
+server {
+    listen 80;
+    include /etc/nginx/app.conf;
+}
+
+# Port 8081: only the HTTPS proxy (Caddy) uses this, and nothing publishes it outside the stack. It tells us the visitor's real
+# address in X-Forwarded-For, which port 80 must never believe (anyone can send that header there). Because only the proxy can
+# reach this port, the header can be trusted here, and the backend's per-address rate limits and "this is my own device"
+# checks see the visitor instead of the proxy.
+server {
+    listen 8081;
+    set_real_ip_from 0.0.0.0/0;
+    set_real_ip_from ::/0;
+    real_ip_header X-Forwarded-For;
+    include /etc/nginx/app.conf;
+}

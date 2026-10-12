@@ -22,7 +22,7 @@ test.beforeAll(async ({ request }) => {
   const types = new Set((await res.json()).items.flatMap((d: { connectionTypes: string[] }) => d.connectionTypes))
   expect(
     types.has('wired') && types.has('wireless'),
-    'the e2e data needs wired and wireless results: run frontend-react/e2e/seed.sql on the DISPOSABLE database',
+    'the e2e data needs wired and wireless results: run frontend-shared/e2e/seed.sql on the DISPOSABLE database',
   ).toBeTruthy()
 })
 

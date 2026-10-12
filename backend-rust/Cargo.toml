@@ -1,0 +1,44 @@
+[package]
+name = "speedtest-backend"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "SpeedtestApp backend, second implementation: Rust. Same contract (docs/openapi.yaml) and database as backend-go."
+
+[dependencies]
+aes-gcm = "0.10"
+async-stream = "0.3"
+async-trait = "0.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "json"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+chrono-tz = "0.10"
+futures-util = "0.3"
+getrandom = "0.3"
+hkdf = "0.12"
+http-body-util = "0.1"
+libc = "0.2"
+p256 = { version = "0.13", features = ["ecdh", "ecdsa", "std"] }
+percent-encoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "chrono", "json", "uuid", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "process", "io-util"] }
+tokio-util = "0.7"
+tower = { version = "0.5", default-features = false }
+tower-http = { version = "0.6", default-features = false, features = ["catch-panic", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+url = "2"
+uuid = { version = "1", features = ["serde"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
