@@ -1,0 +1,161 @@
+# SpeedtestApp: database, backend, web frontend and a private ntfy server.
+#
+#   ./setup.sh            # once: generates every secret into .env
+#   docker compose up -d  # (run from this folder)
+#
+# Only the frontend, the HTTPS proxy and ntfy publish ports. The database and backend are reachable only from inside this stack.
+name: speedtest
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: "${DB_ADMIN_PASSWORD:?Run ./setup.sh first, it creates .env with every secret}"
+      POSTGRES_DB: speedtestdb
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d speedtestdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Applies the schema (and creates the limited database login the backend uses). Safe to run on every start.
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/migrate.Dockerfile
+    image: speedtest-migrate:local
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: postgres
+      PGDATABASE: speedtestdb
+      PGPASSWORD: ${DB_ADMIN_PASSWORD}
+      APP_DB_PASSWORD: "${DB_APP_PASSWORD:?Run ./setup.sh first}"
+
+  backend:
+    build: ../backend-go
+    image: speedtest-backend:local
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ntfy:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://speedtest:${DB_APP_PASSWORD}@db:5432/speedtestdb?sslmode=disable
+      TIMEZONE: ${TIMEZONE:-UTC}
+      API_TOKENS: ${API_TOKENS:-}
+      # The frontend's proxy is the only thing that can reach the backend, and it overwrites X-Forwarded-For.
+      TRUST_PROXY: "1"
+      DEVICE_NAME: ${DEVICE_NAME:-server}
+      SERVER_CONNECTION_TYPE: ${SERVER_CONNECTION_TYPE:-wired}
+      # Ookla's tool is downloaded only when this is exactly "yes": see docs/DEPLOY.md before setting it.
+      OOKLA_ACCEPT_LICENSE: ${OOKLA_ACCEPT_LICENSE:-}
+      # Notifications go to the ntfy service below. An empty topic turns them off.
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+      NTFY_URL: http://ntfy
+      NTFY_USER: ntfy-backend
+      NTFY_PASSWORD: ${NTFY_BACKEND_PASSWORD:-}
+      APP_URL: ${APP_URL:-}
+      # Browser and installed-app notifications (Web Push). On by default; PUSH_ENABLED=no turns them off.
+      PUSH_ENABLED: ${PUSH_ENABLED:-}
+      PUSH_SUBJECT: ${PUSH_SUBJECT:-}
+      PUSH_ALLOWED_HOSTS: ${PUSH_ALLOWED_HOSTS:-}
+    volumes:
+      - ookla:/var/lib/ookla
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/v1/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  frontend:
+    build: ../frontend-react
+    image: speedtest-frontend:local
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+
+  # HTTPS for your own network, with no domain name: Caddy makes certificates from its own private authority. Devices trust
+  # that authority once; see docs/DEPLOY.md ("HTTPS on your network"). Browsers only allow installing the app and
+  # notifications on https pages.
+  https:
+    build: ./caddy
+    image: speedtest-https:local
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      HTTPS_HOSTS: ${HTTPS_HOSTS:-localhost}
+    ports:
+      - "${HTTPS_PORT:-8443}:443"
+    volumes:
+      # The authority's keys live here. Keep it: if it is lost, every device has to trust the new authority again.
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8082/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+
+  ntfy:
+    image: ${NTFY_IMAGE:-binwiederhier/ntfy:v2.29.0}
+    command: ["serve"]
+    restart: unless-stopped
+    environment:
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://localhost:8081}
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+      # Nobody can read or publish anything unless listed below.
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_AUTH_USERS: "ntfy-backend:${NTFY_BACKEND_HASH:-}:user,phone:${NTFY_PHONE_HASH:-}:user"
+      # The backend may only publish to the topic; the phone may only read it.
+      NTFY_AUTH_ACCESS: "ntfy-backend:${NTFY_TOPIC:-unset}:write-only,phone:${NTFY_TOPIC:-unset}:read-only"
+      # Needed only for instant notifications on iPhones: set to https://ntfy.sh (only a poll request goes there, never the message).
+      NTFY_UPSTREAM_BASE_URL: ${NTFY_UPSTREAM_BASE_URL:-}
+    ports:
+      - "${NTFY_PORT:-8081}:80"
+    volumes:
+      - ntfy:/var/lib/ntfy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/v1/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db:
+  ookla:
+  ntfy:
+  caddy-data:
+  caddy-config:

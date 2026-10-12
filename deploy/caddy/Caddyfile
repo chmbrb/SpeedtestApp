@@ -1,0 +1,46 @@
+# HTTPS for your own network, with no domain name and nothing from the internet.
+#
+# Caddy runs its own small certificate authority ("tls internal"), makes a certificate for the addresses in HTTPS_HOSTS, and
+# renews it by itself. Each device that should trust the site installs the authority's root certificate once (see
+# docs/DEPLOY.md, "HTTPS on your network"); it is served at /ca.crt.
+{
+	# Never reach for Let's Encrypt or any other outside service, and don't touch this container's own trust store.
+	local_certs
+	skip_install_trust
+	auto_https disable_redirects
+	admin off
+	# Browsers send no server name when you type an IP address; use the first address from HTTPS_HOSTS then.
+	default_sni {$HTTPS_PRIMARY}
+}
+
+{$HTTPS_HOSTS} {
+	tls internal
+
+	# The root certificate is public by design (it is what devices are asked to trust). Its private key and the rest of the
+	# authority's files are never served: only this one path, mapped to one file.
+	handle /ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition `attachment; filename="speedtest-local-ca.crt"`
+		file_server
+	}
+
+	handle {
+		# The app's own web server (the frontend container), on the port that trusts the visitor address Caddy passes on.
+		# No buffering: the live test progress is a stream.
+		reverse_proxy frontend:8081 {
+			flush_interval -1
+		}
+	}
+
+	log {
+		output stderr
+		format console
+	}
+}
+
+# Answers the container health check only; not published outside the stack.
+http://:8082 {
+	respond /healthz "ok" 200
+}
