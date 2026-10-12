@@ -1,0 +1,1049 @@
+openapi: 3.1.0
+info:
+  title: SpeedtestApp API
+  version: 0.1.0
+  license:
+    name: UNLICENSED
+    identifier: LicenseRef-Unlicensed
+  summary: Speedtest results, statistics, and on-demand tests.
+  description: |
+    The contract shared by every backend (Go, later Rust) and every frontend (React, later Svelte).
+    A backend is conformant when it implements every path here with these shapes.
+
+    Conventions:
+    - Speeds are **Mbit/s** (Ookla `bandwidth` bytes/s divided by 125000). Latency and jitter are **ms**.
+      Packet loss is a **percentage** (0-100).
+    - Timestamps are RFC 3339 in UTC. The `timezone` query parameter (IANA name) only controls bucketing
+      of time series.
+    - Errors use RFC 9457 `application/problem+json`.
+    - Ookla and NDT7 are not directly comparable (parallel vs single connection). Clients should not
+      mix providers in one series unless the user asks to.
+servers:
+  - url: http://localhost:5000
+    description: Local development
+security:
+  - {}   # public by default (LAN); operations that need a token say so explicitly
+tags:
+  - name: Results
+    description: Stored speedtest results.
+  - name: Statistics
+    description: Aggregates for the dashboard, computed in SQL.
+  - name: Tests
+    description: On-demand tests, with live progress.
+  - name: Meta
+    description: Health and device listing.
+  - name: Notifications
+    description: Status of the ntfy alerts. Configuration is by environment variables on the server, never through the API.
+  - name: Push
+    description: Browser and installed-app notifications (Web Push). A browser subscribes itself; the server sends the same alerts ntfy gets.
+paths:
+  /api/v1/health:
+    get:
+      tags: [Meta]
+      operationId: getHealth
+      summary: Liveness and database connectivity
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+                  version: { type: string }
+        "503": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/capabilities:
+    get:
+      tags: [Tests]
+      operationId: getCapabilities
+      summary: Which on-demand tests this server can run
+      description: |
+        Lets a client show only what works, with the reason when something does not. The Ookla provider is off until the
+        person running the server has explicitly accepted Ookla's terms (`OOKLA_ACCEPT_LICENSE=yes`).
+      responses:
+        "200":
+          description: Capabilities
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Capabilities" }
+        "500": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/notifications:
+    get:
+      tags: [Notifications]
+      operationId: getNotifications
+      summary: Status of the ntfy alerts, the alerts that are active now, and the notifications sent recently
+      description: |
+        The ntfy topic works like a password on public ntfy servers, so neither it nor any credential is ever returned.
+        When notifications are off (`NTFY_TOPIC` not set), `enabled` is false, `server` and `rules` are null and both
+        lists are empty.
+      responses:
+        "200":
+          description: Notification status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationStatus" }
+        "500": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/push/config:
+    get:
+      tags: [Push]
+      operationId: getPushConfig
+      summary: Whether browser notifications are available, and the key a browser needs to subscribe
+      responses:
+        "200":
+          description: Push settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushConfig" }
+        "500": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/push/subscriptions:
+    post:
+      tags: [Push]
+      operationId: pushSubscribe
+      summary: Turn notifications on for this browser
+      description: |
+        Send the object the browser's `PushSubscription.toJSON()` returns. Sending the same endpoint again refreshes its keys.
+        The endpoint must be https and belong to a known browser push service (Chrome and Edge, Firefox, Safari, Windows),
+        because the server will send requests to it. Subscriptions are never listed or returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PushSubscription" }
+      responses:
+        "204": { description: Subscribed }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409":
+          description: Too many devices already have notifications turned on.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: Browser notifications are turned off on this server.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "500": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Push]
+      operationId: pushUnsubscribe
+      summary: Turn notifications off for this browser
+      description: Idempotent. It does not say whether the endpoint was known.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PushEndpoint" }
+      responses:
+        "204": { description: Unsubscribed }
+        "400": { $ref: "#/components/responses/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: Browser notifications are turned off on this server.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "500": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/push/test:
+    post:
+      tags: [Push]
+      operationId: pushTest
+      summary: Send a test notification to one subscribed browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PushEndpoint" }
+      responses:
+        "204": { description: Sent }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404":
+          description: This browser is not subscribed.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "502":
+          description: The browser's push service did not accept the message.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: Browser notifications are turned off on this server.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "500": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/devices:
+    get:
+      tags: [Meta]
+      operationId: listDevices
+      summary: Devices that have reported results
+      responses:
+        "200":
+          description: Devices, most recently active first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Device" }
+
+  /api/v1/results:
+    get:
+      tags: [Results]
+      operationId: listResults
+      summary: List results (newest first)
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/Device"
+        - $ref: "#/components/parameters/ConnectionType"
+        - $ref: "#/components/parameters/Trigger"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: cursor
+          in: query
+          description: Opaque value from a previous response's `nextCursor`. Anything else is a 400.
+          schema: { type: string, minLength: 1, maxLength: 200, pattern: "^[A-Za-z0-9_-]+$" }
+      responses:
+        "200":
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Result" }
+                  nextCursor:
+                    type: [string, "null"]
+                    description: "null when there are no more pages."
+        "400": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Results]
+      operationId: ingestResult
+      summary: Submit a result from a trusted agent (collector, device)
+      description: |
+        The device name comes from the bearer token, never from the body.
+      security:
+        - agentToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/OoklaIngest"
+                - $ref: "#/components/schemas/Ndt7Ingest"
+              discriminator:
+                propertyName: provider
+                mapping:
+                  ookla: "#/components/schemas/OoklaIngest"
+                  ndt7: "#/components/schemas/Ndt7Ingest"
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Result" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/results/{id}:
+    get:
+      tags: [Results]
+      operationId: getResult
+      summary: One result, including the provider's raw payload
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Result"
+                  - type: object
+                    properties:
+                      raw:
+                        type: object
+                        additionalProperties: true
+                        description: Original provider payload.
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/stats/summary:
+    get:
+      tags: [Statistics]
+      operationId: getSummary
+      summary: Aggregate statistics over the filtered results
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/Device"
+        - $ref: "#/components/parameters/ConnectionType"
+        - $ref: "#/components/parameters/Trigger"
+      responses:
+        "200":
+          description: Summary (all stats are null when `count` is 0)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Summary" }
+        "400": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/stats/timeseries:
+    get:
+      tags: [Statistics]
+      operationId: getTimeseries
+      summary: Bucketed statistics for charts
+      description: |
+        One series per distinct combination of the `groupBy` fields. Buckets with no results are omitted
+        (the client decides whether to show gaps).
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/Device"
+        - $ref: "#/components/parameters/ConnectionType"
+        - $ref: "#/components/parameters/Trigger"
+        - name: interval
+          in: query
+          schema:
+            type: string
+            enum: [raw, hour, day, week, month, quarter, year]
+            default: day
+          description: "`raw` returns every result as its own point."
+        - name: groupBy
+          in: query
+          style: form
+          explode: false
+          description: Comma-separated. Default is `provider,device,connectionType`.
+          schema:
+            type: array
+            items: { type: string, enum: [provider, device, connectionType] }
+        - name: timezone
+          in: query
+          description: IANA time zone used to align buckets. Defaults to the server's configured zone.
+          schema: { type: string, examples: [America/Phoenix] }
+      responses:
+        "200":
+          description: Series
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Timeseries" }
+        "400": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/tests:
+    get:
+      tags: [Tests]
+      operationId: listTests
+      summary: Recent on-demand tests (for showing what is running now)
+      parameters:
+        - name: state
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/TestState" }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Tests, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Test" }
+        "400": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Tests]
+      operationId: createTest
+      summary: Start an on-demand test
+      description: |
+        - `mode: server` — the backend runs the provider (Ookla) and streams progress from
+          `GET /api/v1/tests/{id}/events`. Only one server test runs at a time (409 otherwise).
+        - `mode: browser` — the caller's browser runs NDT7 itself. The response carries a single-use
+          `submitToken`, shown once, to send the final result to `POST /api/v1/tests/{id}/result`.
+      security:
+        - {}
+        - agentToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTest" }
+      responses:
+        "201":
+          description: Created (and queued, for server tests)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Test" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409":
+          description: A server-side test is already queued or running.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: |
+            That provider is not enabled on this server (for Ookla: its terms have not been accepted).
+            `GET /api/v1/capabilities` says which are available.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /api/v1/tests/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Tests]
+      operationId: getTest
+      summary: Current state of a test
+      responses:
+        "200":
+          description: The test
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Test" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Tests]
+      operationId: cancelTest
+      summary: Cancel a queued or running test
+      description: |
+        Cancelling does not delete anything: the test stays in the history in state `cancelled`, so a later `GET` of the same
+        id still answers 200. Cancelling a test that has already ended just reports its final state.
+      responses:
+        "200":
+          description: Cancelled (or already finished; the body shows the final state)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Test" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/tests/{id}/events:
+    get:
+      tags: [Tests]
+      operationId: streamTestEvents
+      summary: Live progress (Server-Sent Events)
+      description: |
+        `text/event-stream`. Each event has an `event:` name (`state`, `progress`, `result`, `error`)
+        and a `data:` line holding the JSON of `TestEvent`. A new subscriber first receives the current
+        `state`. The stream ends after `result` or `error`. Send `Last-Event-ID` to resume.
+        Only meaningful for `mode: server` tests.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/TestEvent" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/tests/{id}/result:
+    post:
+      tags: [Tests]
+      operationId: submitBrowserResult
+      summary: Submit the result of a browser (NDT7) test
+      description: |
+        Authenticated by the single-use `submitToken` returned when the test was created. The server
+        records the client IP it observed, and rejects results that do not match a test in state `running`
+        or `queued`.
+      security:
+        - submitToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Ndt7Summary" }
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Result" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409":
+          description: The test already has a result.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+components:
+  securitySchemes:
+    agentToken:
+      type: http
+      scheme: bearer
+      description: Per-device token. The token determines the device name.
+    submitToken:
+      type: http
+      scheme: bearer
+      description: Single-use token returned by `POST /api/v1/tests` for a browser test.
+
+  parameters:
+    From:
+      name: from
+      in: query
+      description: Inclusive lower bound on `testedAt`. An empty value is a 400.
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      description: Exclusive upper bound on `testedAt`.
+      schema: { type: string, format: date-time }
+    Provider:
+      name: provider
+      in: query
+      style: form
+      explode: false
+      description: Comma-separated. Omit for all.
+      schema:
+        type: array
+        items: { $ref: "#/components/schemas/Provider" }
+    Device:
+      name: device
+      in: query
+      style: form
+      explode: false
+      description: Comma-separated device names. Omit for all.
+      schema:
+        type: array
+        items: { type: string, minLength: 1, maxLength: 64 }
+    ConnectionType:
+      name: connectionType
+      in: query
+      style: form
+      explode: false
+      description: Comma-separated. Omit for all.
+      schema:
+        type: array
+        items: { $ref: "#/components/schemas/ConnectionType" }
+    Trigger:
+      name: trigger
+      in: query
+      style: form
+      explode: false
+      description: Comma-separated. Omit for all.
+      schema:
+        type: array
+        items: { $ref: "#/components/schemas/Trigger" }
+
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: Missing or invalid token
+      headers:
+        WWW-Authenticate:
+          schema: { type: string, examples: [Bearer] }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    TooManyRequests:
+      description: Rate limited
+      headers:
+        Retry-After:
+          schema: { type: integer, description: Seconds }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    PushConfig:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        publicKey:
+          type: string
+          description: The server's VAPID public key (base64url). Present only when `enabled`.
+    PushEndpoint:
+      type: object
+      required: [endpoint]
+      properties:
+        endpoint: { type: string, minLength: 1, maxLength: 2048 }
+    PushSubscription:
+      type: object
+      required: [endpoint, keys]
+      properties:
+        endpoint: { type: string, minLength: 1, maxLength: 2048 }
+        expirationTime:
+          type: [integer, "null"]
+          description: Sent by browsers; not used.
+        keys:
+          type: object
+          required: [p256dh, auth]
+          properties:
+            p256dh: { type: string, description: "The browser's public key, base64url." }
+            auth: { type: string, description: "The browser's secret, base64url." }
+    Provider: { type: string, enum: [ookla, ndt7] }
+    ConnectionType: { type: string, enum: [wired, wireless] }
+    Trigger:
+      type: string
+      enum: [scheduled, on_demand]
+    TestMode:
+      type: string
+      enum: [server, browser]
+    TestState:
+      type: string
+      enum: [queued, running, completed, failed, cancelled]
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      required: [title, status]
+      properties:
+        type: { type: string, format: uri-reference, default: "about:blank" }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        errors:
+          type: array
+          description: Per-field validation problems.
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    NotificationRules:
+      type: object
+      description: The thresholds the alert monitor applies, in the units a person thinks in.
+      required: [slowRatio, slowConsecutive, recoverRatio, lossPct, lossConsecutive, silenceMinHours, remindHours, baselineDays]
+      properties:
+        slowRatio:
+          type: number
+          description: A download below this fraction of the device's typical speed counts as slow.
+        slowConsecutive: { type: integer, description: Slow tests in a row before alerting. }
+        recoverRatio:
+          type: number
+          description: A download back at this fraction of typical ends the alert.
+        lossPct: { type: number, description: Packet loss at or above this percent counts as lossy. }
+        lossConsecutive: { type: integer }
+        silenceMinHours:
+          type: number
+          description: A device is never called silent sooner than this; otherwise three times its usual interval.
+        remindHours: { type: number, description: Hours between reminders while a problem lasts; 0 means none. }
+        baselineDays: { type: integer, description: Days of history that define "typical". }
+
+    ActiveAlert:
+      type: object
+      required: [kind, subject, title, detail, severity, since, notifiedAt]
+      properties:
+        kind: { type: string, enum: [slow, loss, silence] }
+        subject: { type: string, description: Stable identifier of what the alert is about. }
+        title: { type: string }
+        detail: { type: string }
+        severity: { type: string, enum: [warning, critical] }
+        since: { type: string, format: date-time }
+        notifiedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the person was last told; null if no notification has been delivered yet.
+
+    NotificationEvent:
+      type: object
+      required: [id, at, event, kind, title, message, delivered, error]
+      properties:
+        id: { type: integer }
+        at: { type: string, format: date-time }
+        event: { type: string, enum: [alert, recovery, reminder, test] }
+        kind: { type: [string, "null"], enum: [slow, loss, silence, null] }
+        title: { type: string }
+        message: { type: string }
+        delivered: { type: boolean }
+        error:
+          type: [string, "null"]
+          description: Why delivery failed. Never contains the topic or credentials.
+
+    NotificationStatus:
+      type: object
+      required: [enabled, server, rules, active, recent]
+      properties:
+        enabled: { type: boolean }
+        server:
+          type: [string, "null"]
+          description: Host of the ntfy server. Null when notifications are off.
+        rules:
+          anyOf:
+            - $ref: "#/components/schemas/NotificationRules"
+            - type: "null"
+        active:
+          type: array
+          items: { $ref: "#/components/schemas/ActiveAlert" }
+        recent:
+          type: array
+          description: The newest 20 notifications, newest first.
+          items: { $ref: "#/components/schemas/NotificationEvent" }
+
+    Device:
+      type: object
+      required: [name, connectionTypes, providers, testCount, lastTestAt]
+      properties:
+        name: { type: string }
+        connectionTypes:
+          type: array
+          items: { $ref: "#/components/schemas/ConnectionType" }
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+        testCount: { type: integer, minimum: 0 }
+        lastTestAt: { type: string, format: date-time }
+
+    Server:
+      type: object
+      description: The remote test server that was measured against.
+      required: [name, location, country]
+      properties:
+        name: { type: [string, "null"] }
+        location: { type: [string, "null"] }
+        country: { type: [string, "null"] }
+
+    Result:
+      type: object
+      required: [id, provider, trigger, device, connectionType, testedAt, downloadMbps, uploadMbps,
+                 latencyMs, jitterMs, packetLossPct, isp, server, resultUrl]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { $ref: "#/components/schemas/Provider" }
+        trigger: { $ref: "#/components/schemas/Trigger" }
+        device: { type: string }
+        connectionType: { $ref: "#/components/schemas/ConnectionType" }
+        testedAt: { type: string, format: date-time }
+        downloadMbps: { type: number, minimum: 0 }
+        uploadMbps: { type: number, minimum: 0 }
+        latencyMs: { type: [number, "null"], minimum: 0 }
+        jitterMs: { type: [number, "null"], minimum: 0 }
+        packetLossPct:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 100
+          description: Null when the provider did not report it.
+        isp: { type: [string, "null"] }
+        server: { $ref: "#/components/schemas/Server" }
+        resultUrl:
+          type: [string, "null"]
+          format: uri
+          description: Public result page, when the provider has one (Ookla).
+
+    Stat:
+      type: object
+      description: Distribution of one metric. Fields are null when there is no data.
+      required: [avg, min, max, p50, p95]
+      properties:
+        avg: { type: [number, "null"] }
+        min: { type: [number, "null"] }
+        max: { type: [number, "null"] }
+        p50: { type: [number, "null"] }
+        p95: { type: [number, "null"] }
+
+    Metrics:
+      type: object
+      required: [downloadMbps, uploadMbps, latencyMs, packetLossPct]
+      properties:
+        downloadMbps: { $ref: "#/components/schemas/Stat" }
+        uploadMbps: { $ref: "#/components/schemas/Stat" }
+        latencyMs: { $ref: "#/components/schemas/Stat" }
+        packetLossPct: { $ref: "#/components/schemas/Stat" }
+
+    Summary:
+      allOf:
+        - $ref: "#/components/schemas/Metrics"
+        - type: object
+          required: [count, first, last]
+          properties:
+            count: { type: integer, minimum: 0 }
+            first: { type: [string, "null"], format: date-time }
+            last: { type: [string, "null"], format: date-time }
+
+    SeriesKey:
+      type: object
+      description: Only the `groupBy` fields are present.
+      properties:
+        provider: { $ref: "#/components/schemas/Provider" }
+        device: { type: string }
+        connectionType: { $ref: "#/components/schemas/ConnectionType" }
+
+    TimeseriesPoint:
+      allOf:
+        - $ref: "#/components/schemas/Metrics"
+        - type: object
+          required: [bucket, count]
+          properties:
+            bucket:
+              type: string
+              format: date-time
+              description: Start of the bucket (or the result's time when interval is `raw`).
+            count: { type: integer, minimum: 1 }
+
+    Timeseries:
+      type: object
+      required: [interval, timezone, series]
+      properties:
+        interval: { type: string }
+        timezone: { type: string }
+        series:
+          type: array
+          items:
+            type: object
+            required: [key, points]
+            properties:
+              key: { $ref: "#/components/schemas/SeriesKey" }
+              points:
+                type: array
+                items: { $ref: "#/components/schemas/TimeseriesPoint" }
+
+    OoklaCliResult:
+      type: object
+      description: Raw output of `speedtest --format=json`. Extra fields are kept in `raw`.
+      required: [type, timestamp, download, upload]
+      additionalProperties: true
+      properties:
+        type: { type: string, const: result }
+        timestamp:
+          type: string
+          format: date-time
+          description: Between 2000-01-01 and one day from now.
+        ping:
+          type: object
+          properties:
+            jitter: { type: number, minimum: 0, maximum: 1000000 }
+            latency: { type: number, minimum: 0, maximum: 1000000 }
+        download:
+          type: object
+          required: [bandwidth]
+          properties:
+            bandwidth: { type: number, minimum: 0, maximum: 125000000000, description: Bytes per second. }
+        upload:
+          type: object
+          required: [bandwidth]
+          properties:
+            bandwidth: { type: number, minimum: 0, maximum: 125000000000, description: Bytes per second. }
+        packetLoss: { type: number, minimum: 0, maximum: 100 }
+        isp: { type: string }
+        server: { type: object, additionalProperties: true }
+        result:
+          type: object
+          properties:
+            id: { type: string }
+            url: { type: string }
+
+    Ndt7Summary:
+      type: object
+      description: Final numbers from an NDT7 run, as measured by the client.
+      required: [startedAt, finishedAt, downloadMbps, uploadMbps]
+      properties:
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        downloadMbps: { type: number, minimum: 0, maximum: 1000000 }
+        uploadMbps: { type: number, minimum: 0, maximum: 1000000 }
+        minRttMs: { type: [number, "null"], minimum: 0, maximum: 1000000 }
+        retransmissionPct:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 100
+          description: Server-measured TCP retransmission rate, used as the packet-loss figure.
+        server:
+          type: object
+          description: The M-Lab server used (from the Locate API).
+          properties:
+            machine: { type: string }
+            location: { type: string }
+            country: { type: string }
+        raw:
+          type: object
+          additionalProperties: true
+          description: Client-side measurements to keep for reference.
+
+    OoklaIngest:
+      type: object
+      required: [provider, connectionType, result]
+      properties:
+        provider: { type: string, const: ookla }
+        connectionType: { $ref: "#/components/schemas/ConnectionType" }
+        trigger: { $ref: "#/components/schemas/Trigger" }
+        result: { $ref: "#/components/schemas/OoklaCliResult" }
+
+    Ndt7Ingest:
+      type: object
+      required: [provider, connectionType, result]
+      properties:
+        provider: { type: string, const: ndt7 }
+        connectionType: { $ref: "#/components/schemas/ConnectionType" }
+        trigger: { $ref: "#/components/schemas/Trigger" }
+        result: { $ref: "#/components/schemas/Ndt7Summary" }
+
+    CreateTest:
+      type: object
+      required: [provider, mode, connectionType]
+      properties:
+        provider: { $ref: "#/components/schemas/Provider" }
+        mode: { $ref: "#/components/schemas/TestMode" }
+        connectionType:
+          $ref: "#/components/schemas/ConnectionType"
+          description: |
+            How the device running the test is connected. For `mode: server` this is ignored: the server reports its own
+            configured connection type.
+        device:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: |
+            Free-text name for a browser test. Ignored for `mode: server` (always the server's own name)
+            and when an agent token is supplied (the token decides).
+      # The rule in words: a browser test must say which device it is; a server test never needs to.
+      if:
+        properties:
+          mode: { const: browser }
+        required: [mode]
+      then:
+        required: [device]
+
+    Test:
+      type: object
+      required: [id, provider, mode, device, connectionType, state, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { $ref: "#/components/schemas/Provider" }
+        mode: { $ref: "#/components/schemas/TestMode" }
+        device: { type: string }
+        connectionType: { $ref: "#/components/schemas/ConnectionType" }
+        state: { $ref: "#/components/schemas/TestState" }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, "null"], format: date-time }
+        finishedAt: { type: [string, "null"], format: date-time }
+        resultId: { type: [string, "null"], format: uuid }
+        error: { type: [string, "null"] }
+        queuePosition:
+          type: [integer, "null"]
+          description: Present while `queued`.
+        submitToken:
+          type: string
+          description: Browser tests only; returned once, on creation.
+
+    Capabilities:
+      type: object
+      required: [deviceName, serverConnectionType, ookla, ndt7]
+      properties:
+        deviceName:
+          type: string
+          description: The name results from tests run by the server itself are stored under.
+        serverConnectionType: { $ref: "#/components/schemas/ConnectionType" }
+        ookla:
+          $ref: "#/components/schemas/Capability"
+          description: Ookla tests, run by the server (they cannot run in a browser).
+        ndt7:
+          $ref: "#/components/schemas/Capability"
+          description: M-Lab NDT7 tests, run in the visitor's own browser.
+
+    Capability:
+      type: object
+      required: [available, reason]
+      properties:
+        available: { type: boolean }
+        reason:
+          type: [string, "null"]
+          description: Plain-language explanation when the capability is not available.
+
+    TestEvent:
+      description: Payload of one SSE `data:` line; the SSE `event:` name equals `type`.
+      oneOf:
+        - $ref: "#/components/schemas/StateEvent"
+        - $ref: "#/components/schemas/ProgressEvent"
+        - $ref: "#/components/schemas/ResultEvent"
+        - $ref: "#/components/schemas/ErrorEvent"
+      discriminator:
+        propertyName: type
+        mapping:
+          state: "#/components/schemas/StateEvent"
+          progress: "#/components/schemas/ProgressEvent"
+          result: "#/components/schemas/ResultEvent"
+          error: "#/components/schemas/ErrorEvent"
+
+    StateEvent:
+      type: object
+      required: [type, test]
+      properties:
+        type: { type: string, const: state }
+        test: { $ref: "#/components/schemas/Test" }
+
+    ProgressEvent:
+      type: object
+      required: [type, phase, elapsedMs]
+      properties:
+        type: { type: string, const: progress }
+        phase: { type: string, enum: [ping, download, upload] }
+        elapsedMs: { type: integer, minimum: 0 }
+        fraction:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+          description: Progress within the phase, when the provider reports it.
+        currentMbps:
+          type: [number, "null"]
+          description: Instantaneous speed during download/upload; for the live gauge.
+        latencyMs: { type: [number, "null"] }
+        jitterMs: { type: [number, "null"] }
+
+    ResultEvent:
+      type: object
+      required: [type, result]
+      properties:
+        type: { type: string, const: result }
+        result: { $ref: "#/components/schemas/Result" }
+
+    ErrorEvent:
+      type: object
+      required: [type, message]
+      properties:
+        type: { type: string, const: error }
+        message: { type: string }

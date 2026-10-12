@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # localhost is the intended development server
+  no-server-example.com: off
+  # GET /devices takes no input, so there is no client error to document
+  operation-4xx-response: off
