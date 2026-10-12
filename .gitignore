@@ -1,3 +1,5 @@
 .env
 speedtests_export.csv
+.schemathesis/
+collector-go/dist/
 __pycache__/
