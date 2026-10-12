@@ -1,0 +1,4 @@
+# Only what the migration image needs. (The backend and frontend images have their own build contexts.)
+*
+!sql/postgres
+!deploy/migrate.sh
