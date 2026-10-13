@@ -245,13 +245,17 @@ impl Store {
             .await
     }
 
+    /// Counting per (device, connection type, provider) first and rolling that up lets Postgres answer from
+    /// ix_speedtests_devices_summary (sql/postgres/008) without a sort of the whole table.
     pub async fn devices(&self) -> Result<Vec<Device>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT device,
 		       array_agg(DISTINCT connection_type ORDER BY connection_type),
 		       array_agg(DISTINCT provider ORDER BY provider),
-		       count(*), max(tested_at)
-		FROM speedtests GROUP BY device ORDER BY max(tested_at) DESC, device",
+		       sum(n)::bigint, max(last_at)
+		FROM (SELECT device, connection_type, provider, count(*) AS n, max(tested_at) AS last_at
+		      FROM speedtests GROUP BY device, connection_type, provider) g
+		GROUP BY device ORDER BY max(last_at) DESC, device",
         )
         .fetch_all(&self.pool)
         .await?;

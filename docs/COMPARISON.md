@@ -81,8 +81,13 @@ deeper than 128 levels).
 
 Two findings are about the app, not the language, and apply to both versions at 200,000 results:
 
-- **`/api/v1/devices` takes about 90 ms on its own** (it reads the whole table to find each device's latest test). The dashboard calls it
-  on load. An index or a small summary table would fix it for both backends.
+- **`/api/v1/devices` was slow on its own** (about 90 ms in the run above: it read the whole table and sorted every row to find each
+  device's connection types, providers, count and latest test). The dashboard calls it on load. Fixed in both backends by migration
+  `008` (an index on `(device, connection_type, provider, tested_at)`) and a query that counts per device, connection type and
+  provider first and then rolls that up, so Postgres answers from the index alone. On a fresh 200,000-row table with five devices the
+  query went from 297 ms to 40 ms, with identical answers, and both backends still agree on every response. The table above was measured
+  before this change. The cost still grows with the number of results, but slowly: at a few thousand results it is a few milliseconds
+  either way.
 - **A 30-day hourly `timeseries` response is about 1 MB.** It is fast to produce but heavy to send; the dashboard would do as well with a
   coarser interval for long ranges.
 

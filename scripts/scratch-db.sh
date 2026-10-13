@@ -30,7 +30,7 @@ case "${1:-up}" in
     # the same order deploy/migrate.sh uses (002 loads legacy data and is not needed)
     for f in 001_create_speedtests 003_create_app_role; do psql_ -d speedtestdb -f "sql/postgres/$f.sql" >/dev/null; done
     echo "ALTER ROLE speedtest WITH LOGIN PASSWORD 'scratch';" | psql_ -d speedtestdb >/dev/null
-    for f in 004_add_device_connection_type 005_providers_and_tests 006_notifications 007_web_push; do
+    for f in 004_add_device_connection_type 005_providers_and_tests 006_notifications 007_web_push 008_devices_summary_index; do
       psql_ -d speedtestdb -f "sql/postgres/$f.sql" >/dev/null
     done
     psql_ -d speedtestdb -c "COMMENT ON DATABASE speedtestdb IS 'speedtest-integration-test'" >/dev/null

@@ -19,5 +19,6 @@ run 004_add_device_connection_type.sql
 run 005_providers_and_tests.sql
 run 006_notifications.sql
 run 007_web_push.sql
+run 008_devices_summary_index.sql
 
 echo "migrate: done"
