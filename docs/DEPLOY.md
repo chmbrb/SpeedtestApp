@@ -44,6 +44,54 @@ Anything else is refused. The thresholds that decide *when* you are notified are
 arrived" poll goes there, never the message. Your phone must also be able to reach `NTFY_BASE_URL`; for use outside your home network
 put your own HTTPS reverse proxy in front.
 
+### Changing the ntfy topic and passwords
+
+Do this if the topic or a password has leaked (pasted into a chat, a screenshot, a shared log). The topic and both passwords are in
+`.env`, and the topic works like a password too, so change all of them together. Nothing is lost: the database and the other volumes
+are untouched, and the old topic and passwords stop working as soon as ntfy restarts.
+
+Do **not** run `setup.sh --force` for this: it also makes new database passwords, which the existing database would reject.
+
+1. From `deploy/`, keep a copy of `.env` in case a line goes wrong (it holds secrets, so delete it when you are done):
+
+   ```
+   cp -p .env .env.bak
+   ```
+
+2. Make the new values. This only prints them, it changes nothing. It needs `openssl` and Docker (it uses the same ntfy image as the
+   stack to make the password hashes):
+
+   ```
+   IMAGE="${NTFY_IMAGE:-binwiederhier/ntfy:v2.29.0}"
+   ntfy_hash() { printf '%s\n%s\n' "$1" "$1" | docker run --rm -i "$IMAGE" user hash 2>/dev/null | grep -o '\$2[aby]\$[0-9]*\$[./A-Za-z0-9]*' | tail -1; }
+   BACKEND_PW="$(openssl rand -hex 16)"; PHONE_PW="$(openssl rand -hex 8)"
+   echo "NTFY_TOPIC=speedtest-$(openssl rand -hex 8)"
+   echo "NTFY_BACKEND_PASSWORD=$BACKEND_PW"
+   echo "NTFY_PHONE_PASSWORD=$PHONE_PW"
+   echo "NTFY_BACKEND_HASH='$(ntfy_hash "$BACKEND_PW")'"
+   echo "NTFY_PHONE_HASH='$(ntfy_hash "$PHONE_PW")'"
+   unset BACKEND_PW PHONE_PW
+   ```
+
+3. In `.env`, replace the five lines that start with the same names by the five printed lines. Keep the single quotes around the two
+   hashes (a bcrypt hash contains `$`, which must stay literal). Each password must match its own hash, so replace all five.
+
+4. Apply it. Compose sees that the `ntfy` and `backend` settings changed and recreates just those two:
+
+   ```
+   docker compose up -d
+   ```
+
+   (With the Rust and Svelte version, use the same two `-f` options as always.)
+
+5. On your phone, in the ntfy app, delete the old subscription and add a new one: the same server, the **new** topic, user `phone`
+   and the new `NTFY_PHONE_PASSWORD`. The old subscription would only get "unauthorized" now.
+6. Check it: `docker compose run --rm backend notify-test`. The phone should get the message.
+7. Delete the copy: `rm .env.bak`.
+
+If you have already opened a terminal where you ran `set -a; . ./.env` (or exported any of these names), close it first: a value
+exported in your shell wins over `.env`, so your edits would be ignored.
+
 ## HTTPS on your network
 
 Browsers only let a site install itself as an app, and only show it notifications, when it is served over HTTPS. That normally needs a
@@ -122,6 +170,76 @@ SPEEDTEST_API_TOKEN=<token> speedtest-collector daemon --api-url http://<host>:8
 It tests every two hours by default, keeps results on disk if the server is unreachable, and sends them later. The token decides the
 device name (`server` by default). To add another device, add `name=token` to `API_TOKENS` in `.env` (comma separated) and run
 `docker compose up -d`.
+
+### Changing a device's token
+
+Do this if a token has leaked (pasted into a chat, a screenshot, a shared log). Only the device whose token you change needs any
+attention, and its results stay under the same device name, because the name is the part before the `=`.
+
+1. From `deploy/`, make a new token (`setup.sh` uses 40 hex characters):
+
+   ```
+   openssl rand -hex 20
+   ```
+
+2. In `.env`, replace only the token in that device's `name=token` pair of `API_TOKENS`, and keep the name and the commas as they are
+   (`API_TOKENS=server=<new token>,laptop=<its token>`). Then apply it, which recreates the backend:
+
+   ```
+   docker compose up -d
+   ```
+
+   From this moment the old token is refused (HTTP 401), so the collector on that device cannot send until it has the new one.
+3. On the device, put the new token where the collector reads it (`SPEEDTEST_API_TOKEN` in `/etc/speedtest-collector.env` for the
+   systemd setup in [COLLECTOR.md](COLLECTOR.md), or the file given to `--token-file`) and restart the collector, for example
+   `sudo systemctl restart speedtest-collector`.
+4. Check it on the device: `speedtest-collector check` should say the token is accepted. Results that could not be sent in the
+   meantime are not lost: a refused token keeps them on disk, and they are sent on the next run (or right away with
+   `speedtest-collector flush`).
+
+If you use a shell where you ran `set -a; . ./.env`, close it first: a value exported in your shell wins over `.env`, so the
+backend would keep the old token.
+
+### Changing the database passwords
+
+There are two, both in `.env`. `DB_APP_PASSWORD` is the limited login (`speedtest`) the backend uses. `DB_ADMIN_PASSWORD` is the
+administrator (`postgres`), which only the `migrate` step uses to apply the schema. The database is not published outside the stack, so
+change them if one has leaked or you handed it to someone, not as routine. Use only letters and digits in a new password (the
+commands below make hex): the app login is put into a URL, where characters like `@`, `:` or `/` break it.
+
+Keep a copy of `.env` first, in case a line goes wrong (delete it afterwards, it holds secrets): `cp -p .env .env.bak`
+
+**The app login (`DB_APP_PASSWORD`)** is the simple one. The `migrate` step sets this login's password from `.env` every time it runs:
+
+1. Make a new password with `openssl rand -hex 16` and put it in `.env` as `DB_APP_PASSWORD`.
+2. Run `docker compose up -d`. Compose sees the changed settings, runs `migrate` (which sets the new password) and recreates the backend
+   with it. The old password stops working at that moment.
+
+**The administrator (`DB_ADMIN_PASSWORD`)** has a trap: PostgreSQL reads the password from `.env` only when it creates a **new, empty**
+database. Changing the line alone changes nothing in your existing database, and `migrate` then cannot log in with the "new" password,
+so the backend never starts. Change it in the running database first, then in `.env`, in this order:
+
+1. With the stack running (from `deploy/`), set the new password inside the database. This talks to PostgreSQL over its local socket,
+   which needs no password, and prints the line to put in `.env`:
+
+   ```
+   NEW_ADMIN="$(openssl rand -hex 16)"
+   printf "ALTER USER postgres WITH PASSWORD :'pw';\n" | docker compose exec -T db psql -U postgres -d speedtestdb -v ON_ERROR_STOP=1 -v pw="$NEW_ADMIN"
+   echo "DB_ADMIN_PASSWORD=$NEW_ADMIN"
+   unset NEW_ADMIN
+   ```
+
+   (With the Rust and Svelte version, use the same two `-f` options as always.) Wait for `ALTER ROLE` to be printed.
+2. Replace the `DB_ADMIN_PASSWORD` line in `.env` with the printed line.
+3. Run `docker compose up -d`. The database container restarts (its data is kept), `migrate` runs with the new password and the backend
+   starts again. If you also changed `DB_APP_PASSWORD`, this one run applies both.
+
+If the backend does not come back, look at `docker compose logs migrate`. A "password authentication failed" there means `.env` and the
+database disagree: put the old `DB_ADMIN_PASSWORD` back from `.env.bak`, run `docker compose up -d`, and repeat the steps in order.
+
+Anything else that logs in to the database by hand (a `psql` session, a backup job) needs the new password too. Then delete the copy:
+`rm .env.bak`. As with the other secrets, close any shell where you ran `set -a; . ./.env` first, because a value exported in your
+shell wins over `.env`.
 
 ## The "Test the server" button and Ookla's terms
 
