@@ -1,13 +1,14 @@
-# Round-two stack: the Rust backend and the Svelte frontend in place of Go and React. Same database, same settings, same ports.
+# Round-two stack: the Rust backend in place of Go. Same database, same settings, same ports.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.rust-svelte.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.rust.yml up -d --build
 #
-# Use the same two -f flags for every later command (logs, down, ...). Both stacks use the same database volume, so you can switch
+# May be used in conjuction with Svelte, ie.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.rust.yml -f docker-compose.svelte.yml up -d --build
+#
+# Use the same -f flags for every later command (logs, down, ...). Both stacks use the same database volume, so you can switch
 # between them: down, then up with the other set of files.
 services:
   backend:
     build: ../backend-rust
     image: speedtest-backend-rust:local
-  frontend:
-    build: ../frontend-svelte
-    image: speedtest-frontend-svelte:local

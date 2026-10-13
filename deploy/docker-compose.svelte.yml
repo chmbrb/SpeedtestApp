@@ -1,0 +1,14 @@
+# Round-two stack: the Svelte frontend in place of React. Same database, same settings, same ports.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.svelte.yml up -d --build
+#
+# May be used in conjuction with Rust, ie.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.rust.yml -f docker-compose.svelte.yml up -d --build
+#
+# Use the same -f flags for every later command (logs, down, ...). Both stacks use the same database volume, so you can switch
+# between them: down, then up with the other set of files.
+services:
+  frontend:
+    build: ../frontend-svelte
+    image: speedtest-frontend-svelte:local
