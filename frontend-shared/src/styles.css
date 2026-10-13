@@ -277,7 +277,11 @@ table.data .num { text-align: right; font-variant-numeric: tabular-nums; padding
   .topbar .seg span { display: none; }
   .filters .seg span { display: inline; }
   .reset { margin-left: 0; }
-  .menu-panel { min-width: min(280px, calc(100vw - 32px)); }
+  /* On a phone the panel is pinned to the screen's side gutters (top stays where it would have been, just under its button),
+     so it can never run off either edge whichever side its button is on, and it scrolls if the list is taller than the screen. */
+  .menu-panel, .menu-panel.align-end, .menu-panel.align-start {
+    position: fixed; top: auto; left: 16px; right: 16px; min-width: 0; max-height: 60dvh; overflow-y: auto; overscroll-behavior: contain;
+  }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 @media (forced-colors: active) {
