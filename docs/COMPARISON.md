@@ -88,8 +88,15 @@ Two findings are about the app, not the language, and apply to both versions at 
   query went from 297 ms to 40 ms, with identical answers, and both backends still agree on every response. The table above was measured
   before this change. The cost still grows with the number of results, but slowly: at a few thousand results it is a few milliseconds
   either way.
-- **A 30-day hourly `timeseries` response is about 1 MB.** It is fast to produce but heavy to send; the dashboard would do as well with a
-  coarser interval for long ranges.
+- **A 30-day hourly `timeseries` response is about 1 MB** (gzipped; 3.3 MB as JSON), but the dashboard does not ask for it. Its
+  automatic interval is hourly up to 3 days, daily up to 120 days and weekly beyond (`resolveInterval` in
+  `frontend-shared/src/state/filters.ts`), so the default 30-day view is daily buckets: 149 KB (51 KB gzipped). A large response only
+  happens when someone picks Hourly or Every test by hand on a long range (measured on this 200,000-result table, which holds about
+  2,200 results a day, far more than a real setup): 90 days hourly is 10 MB, 7 days of every test is 8 MB, and 30 days of every test is
+  refused with a 400 (more than the 20,000-point cap). Each point is about 600 bytes, because it carries 4 metrics times 5 statistics
+  as full-precision doubles. Not changed, since real data is far sparser. If it matters later, two small fixes: limit the fine
+  intervals to short ranges in the interval menu (shared frontend code), and round the statistics to 2 decimals in the SQL (roughly
+  halves each point; an estimate, not measured).
 
 ## How reliable are these numbers?
 
