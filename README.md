@@ -1,6 +1,6 @@
 # Speedtest App
 
-A Speedtest application for heuristic data collection, organization, and analysis built to track your homelab network's performance. 
+A Speedtest application for heuristic data collection, organization, and analysis built to track your homelab's network performance. 
 
 ![Desktop Screenshot](img/desktop-screenshot.png)
 
