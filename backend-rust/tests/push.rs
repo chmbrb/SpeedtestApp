@@ -47,13 +47,14 @@ async fn take(
     uri: axum::http::Uri,
     headers: HeaderMap,
     body: Bytes,
-) -> (StatusCode, HeaderMap, &'static str) {
+) -> (StatusCode, HeaderMap, String) {
     let path = uri.path().to_string();
+    let host = headers.get("host").and_then(|h| h.to_str().ok()).unwrap_or_default().to_string();
     got.lock().unwrap().push(Got { path: path.clone(), headers, body: body.to_vec() });
     let mut h = HeaderMap::new();
     if path.starts_with("/redirect") {
         h.insert("location", "/elsewhere".parse().unwrap());
-        return (StatusCode::FOUND, h, "");
+        return (StatusCode::FOUND, h, String::new());
     }
     let code = if path.starts_with("/gone") {
         StatusCode::GONE
@@ -64,7 +65,9 @@ async fn take(
     } else {
         StatusCode::CREATED
     };
-    (code, h, "")
+    // like a real push service, say why; this one also repeats the address it was sent to (which must never reach the log)
+    let body = if path.starts_with("/gone") { format!("NotRegistered http://{host}{path}") } else { String::new() };
+    (code, h, body)
 }
 
 impl Fake {
@@ -290,6 +293,42 @@ async fn expired_subscriptions_are_removed() {
     let left: Vec<String> = r.store.list_subscriptions().await.unwrap().into_iter().map(|s| s.endpoint).collect();
     assert_eq!(left, vec![r.fake.url("/ok/live")]);
     let _ = live;
+}
+
+/// Collects what `tracing` prints on this thread (tokio tests run on one thread), so a test can read the log.
+#[derive(Clone, Default)]
+struct LogBuf(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogBuf {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuf {
+    type Writer = LogBuf;
+    fn make_writer(&'a self) -> LogBuf {
+        self.clone()
+    }
+}
+
+#[tokio::test]
+async fn a_gone_subscription_logs_what_the_push_service_said() {
+    let r = rig!();
+    r.subscribe("/gone/1").await;
+    let endpoint = r.fake.url("/gone/1");
+    let logs = LogBuf::default();
+    let _guard = tracing::subscriber::set_default(tracing_subscriber::fmt().with_writer(logs.clone()).with_ansi(false).finish());
+    let err = r.svc.send_test(&endpoint).await.unwrap_err();
+    assert!(matches!(err, PushError::Refused(_)), "{err:?}");
+    let out = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+    assert!(out.contains("status=410") && out.contains("NotRegistered"), "the log lacks the status or the answer: {out}");
+    assert!(!out.contains(&endpoint), "the log leaks the endpoint: {out}");
+    assert!(out.contains("<subscription>"), "{out}");
 }
 
 #[tokio::test]

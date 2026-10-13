@@ -276,7 +276,9 @@ impl Service {
             self.mark(sub, true).await;
             Ok(())
         } else if status.as_u16() == 404 || status.as_u16() == 410 {
-            // the browser or the user cancelled it: nothing will ever be delivered there again
+            // the browser or the user cancelled it: nothing will ever be delivered there again. The push service's own words
+            // ("NotRegistered", "InvalidRegistration", ...) are the only way to tell why, so they go to the log.
+            tracing::warn!(status = status.as_u16(), detail = %clip(&redact(detail), 300), "push service says the subscription is gone");
             if let Err(e) = self.store.delete_subscription_by_id(&sub.id).await {
                 tracing::error!(err = %e, "could not remove an expired push subscription");
             }
