@@ -273,7 +273,10 @@ func (s *Service) deliver(ctx context.Context, sub store.PushSubscription, body 
 		s.mark(ctx, sub, true)
 		return nil
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
-		// The browser or the user cancelled it: nothing will ever be delivered there again.
+		// The browser or the user cancelled it: nothing will ever be delivered there again. The push service's own words
+		// ("NotRegistered", "InvalidRegistration", ...) are the only way to tell why, so they go to the log.
+		s.log.Warn("push service says the subscription is gone", "status", resp.StatusCode,
+			"detail", clip(strings.ReplaceAll(strings.TrimSpace(string(detail)), sub.Endpoint, "<subscription>"), 300))
 		if err := s.repo.DeleteSubscriptionByID(context.WithoutCancel(ctx), sub.ID); err != nil {
 			s.log.Error("could not remove an expired push subscription", "err", err)
 		}

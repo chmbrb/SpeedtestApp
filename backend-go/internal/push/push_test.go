@@ -189,6 +189,7 @@ type pushService struct {
 	mu     sync.Mutex
 	hits   []hit
 	status func(path string) int
+	body   string // written after the status, when set
 }
 
 type hit struct {
@@ -208,8 +209,10 @@ func newPushService(t *testing.T) *pushService {
 		if p.status != nil {
 			st = p.status(r.URL.Path)
 		}
+		body := p.body
 		p.mu.Unlock()
 		w.WriteHeader(st)
+		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(p.Close)
 	return p
@@ -230,6 +233,11 @@ func (p *pushService) hitsFor(path string) []hit {
 
 func newService(t *testing.T, ps *pushService) (*Service, *memRepo) {
 	t.Helper()
+	return newServiceLogging(t, ps, io.Discard)
+}
+
+func newServiceLogging(t *testing.T, ps *pushService, logTo io.Writer) (*Service, *memRepo) {
+	t.Helper()
 	pool := x509.NewCertPool()
 	pool.AddCert(ps.Certificate())
 	repo := newMemRepo()
@@ -238,7 +246,7 @@ func newService(t *testing.T, ps *pushService) (*Service, *memRepo) {
 		Subject:      "https://speedtest.example.org",
 		AllowedHosts: []string{u.Hostname()},
 		HTTPClient:   &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}, Timeout: 5 * time.Second},
-	}, repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, repo, slog.New(slog.NewTextHandler(logTo, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,6 +426,27 @@ func TestExpiredSubscriptionsAreRemoved(t *testing.T) {
 		if _, ok := repo.subs[ps.endpoint("alive")]; !ok {
 			t.Errorf("status %d: the working subscription was removed", status)
 		}
+	}
+}
+
+func TestGoneSubscriptionLogsWhatThePushServiceSaid(t *testing.T) {
+	ps := newPushService(t)
+	ps.status = func(string) int { return 410 }
+	br := newBrowser(t)
+	ep := ps.endpoint("gone")
+	ps.body = "NotRegistered " + ep
+	var logs strings.Builder
+	svc, _ := newServiceLogging(t, ps, &logs)
+	_ = svc.Subscribe(context.Background(), ep, br.p256dh(), br.authKey(), "")
+	if err := svc.SendTest(context.Background(), ep); !errors.Is(err, ErrNotAllowed) {
+		t.Fatalf("err = %v", err)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "status=410") || !strings.Contains(out, "NotRegistered") {
+		t.Errorf("the log lacks the status or the push service's answer: %s", out)
+	}
+	if strings.Contains(out, ep) {
+		t.Errorf("the log leaks the endpoint: %s", out)
 	}
 }
 
