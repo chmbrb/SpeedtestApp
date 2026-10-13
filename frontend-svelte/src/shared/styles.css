@@ -59,7 +59,7 @@ button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
 
 /* ---------- top bar ---------- */
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0 14px; }
+.topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 18px 0 14px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 650; font-size: 1.0625rem; letter-spacing: -0.015em; }
 
 .banner.install { border-left-color: var(--ink-2); }
@@ -284,3 +284,11 @@ table.data .num { text-align: right; font-variant-numeric: tabular-nums; padding
   .key { forced-color-adjust: none; }
   .seg[aria-checked='true'] { outline: 2px solid Highlight; }
 }
+
+/* The login page, shown only by a server that has a dashboard password. */
+.auth { min-height: 100svh; display: grid; place-items: center; padding: 24px 0; }
+.auth-card { width: min(100%, 360px); display: grid; gap: 16px; }
+.auth-card h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+.auth-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.auth-error { color: var(--critical-text); font-size: 0.875rem; min-height: 1.3em; }
+.auth-wait { min-height: 100svh; display: grid; place-items: center; color: var(--muted); }

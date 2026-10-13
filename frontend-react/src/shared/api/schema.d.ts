@@ -21,6 +21,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether a login is required, and whether this browser is signed in
+         * @description Never needs a session and never answers with an error. With no login on the server, `required` is false and
+         *     `authenticated` is always true. The answer is never cached.
+         */
+        get: operations["getAuthSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with the shared password
+         * @description On success the answer sets the session cookie: `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` when the request
+         *     came over https. It stays valid for `DASHBOARD_SESSION_DAYS` (default 30) or until the password is changed. Attempts
+         *     are limited per address and overall; the limit applies to right and wrong passwords alike.
+         */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forget the session cookie in this browser
+         * @description Always answers 204 and clears the cookie. A session is a signed cookie, not a record on the server, so copies of it
+         *     elsewhere stay valid until they expire. Changing the server's password ends every session at once.
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/capabilities": {
         parameters: {
             query?: never;
@@ -314,6 +378,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AuthSession: {
+            /** @description Whether this server asks for a login at all. */
+            required: boolean;
+            /** @description Whether this browser may use the API. Always true when no login is required. */
+            authenticated: boolean;
+        };
         PushConfig: {
             enabled: boolean;
             /** @description The server's VAPID public key (base64url). Present only when `enabled`. */
@@ -740,6 +810,92 @@ export interface operations {
                 };
             };
             503: components["responses"]["Problem"];
+        };
+    };
+    getAuthSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state of this browser's session */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSession"];
+                };
+            };
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Signed in */
+            204: {
+                headers: {
+                    /** @description The session cookie (`speedtest_session`). */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Problem"];
+            /** @description Wrong password */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description This server has no login */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cookie was cleared */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getCapabilities: {
@@ -1263,7 +1419,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": string;
+                    "text/event-stream": {
+                        event: string;
+                        data: string;
+                        id?: string;
+                    };
                 };
             };
             404: components["responses"]["Problem"];

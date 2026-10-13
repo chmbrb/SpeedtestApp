@@ -21,12 +21,15 @@ registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), { deny
 
 // Show the last data seen on this device when the network is down. Never the live parts: the health check, and anything
 // under /tests (the event stream must reach the network, and "a test is running" must not be answered from an old cache),
-// and nothing under /push (subscriptions and test notifications are actions, not data).
+// nothing under /push (subscriptions and test notifications are actions, not data), and nothing under /auth (whether this
+// browser is signed in is only ever what the server says now; the cache 'api-v1' is emptied when the session ends, see
+// clearApiCache in state/auth.ts).
 registerRoute(
   ({ url }) =>
     url.pathname.startsWith('/api/v1/') &&
     !url.pathname.endsWith('/health') &&
     !url.pathname.startsWith('/api/v1/tests') &&
+    !url.pathname.startsWith('/api/v1/auth/') &&
     !url.pathname.startsWith('/api/v1/push/subscriptions') &&
     !url.pathname.startsWith('/api/v1/push/test'),
   new NetworkFirst({

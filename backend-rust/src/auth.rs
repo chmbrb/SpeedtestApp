@@ -23,7 +23,7 @@ pub fn parse_tokens(s: &str) -> Vec<TokenEntry> {
 }
 
 /// Equal contents, in time that does not depend on where the first difference is. (A different length is visible, as in Go.)
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 

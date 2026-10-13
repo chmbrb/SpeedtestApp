@@ -26,7 +26,7 @@ use crate::{
     ondemand_api as od,
     params::*,
     problem::{FieldError, Problem},
-    push_api, static_files,
+    push_api, session_api, static_files,
     store::{Store, StoreError},
 };
 
@@ -48,6 +48,11 @@ pub struct AppState {
     pub pusher: Option<Arc<crate::push::Service>>,
     pub push_limiter: Arc<Limiter>,
     pub push_test_limiter: Arc<Limiter>,
+    /// The dashboard login (None: the dashboard is open).
+    pub login: Option<Arc<crate::login::Service>>,
+    /// Login attempts per address, and from all addresses together.
+    pub login_limiter: Arc<Limiter>,
+    pub login_global: Arc<Limiter>,
 }
 
 impl AppState {
@@ -65,7 +70,25 @@ impl AppState {
             pusher: None,
             push_limiter: Arc::new(Limiter::new(10, 20)),
             push_test_limiter: Arc::new(Limiter::new(3, 6)),
+            login: None,
+            login_limiter: Arc::new(Limiter::new(5, 6)),
+            login_global: Arc::new(Limiter::new(30, 30)),
         }
+    }
+
+    /// Turns the dashboard login on (see the `login` module).
+    pub fn with_login(mut self, l: Arc<crate::login::Service>) -> Self {
+        self.login = Some(l);
+        self.reset_login_limits();
+        self
+    }
+
+    /// 5 attempts in a burst and 6 a minute per address, and 30 and 30 for all addresses together. Lifted when ingest limiting is
+    /// off (INGEST_RATE_PER_MIN=0), which exists for load and fuzz tests.
+    fn reset_login_limits(&mut self) {
+        let (per_ip, all) = if self.limit_ingest { ((5, 6), (30, 30)) } else { ((1_000_000, 1_000_000), (1_000_000, 1_000_000)) };
+        self.login_limiter = Arc::new(Limiter::new(per_ip.0, per_ip.1));
+        self.login_global = Arc::new(Limiter::new(all.0, all.1));
     }
 
     pub fn with_notifier(mut self, m: Arc<Monitor>) -> Self {
@@ -97,6 +120,7 @@ impl AppState {
             self.push_limiter = Arc::new(Limiter::new(1_000_000, 1_000_000));
             self.push_test_limiter = Arc::new(Limiter::new(1_000_000, 1_000_000));
         }
+        self.reset_login_limits();
         self
     }
 }
@@ -112,6 +136,9 @@ pub fn router(state: AppState) -> Router {
         // Features that arrive in later stages answer as the contract describes their "off" states, so a dashboard can run
         // against this backend today. Ingest is the one exception: the contract has no "off" answer for it, so it says 501.
         .route("/api/v1/notifications", get(notifications))
+        .route("/api/v1/auth/session", get(session_api::session))
+        .route("/api/v1/auth/login", post(session_api::login))
+        .route("/api/v1/auth/logout", post(session_api::logout))
         .route("/api/v1/capabilities", get(od::capabilities))
         .route("/api/v1/push/config", get(push_api::config))
         .route("/api/v1/push/subscriptions", post(push_api::subscribe).delete(push_api::unsubscribe))
@@ -121,6 +148,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/tests/{id}/events", get(od::test_events))
         .route("/api/v1/tests/{id}/result", post(od::submit_result))
         .fallback(fallback)
+        .layer(middleware::from_fn_with_state(state.clone(), session_api::require_login))
         .layer(middleware::from_fn(problem_for_bare_errors))
         .layer(middleware::from_fn(log_requests))
         .layer(CatchPanicLayer::custom(|_| Problem::internal().into_response()))

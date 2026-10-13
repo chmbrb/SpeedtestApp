@@ -74,6 +74,9 @@ services:
       NTFY_USER: ntfy-backend
       NTFY_PASSWORD: ${NTFY_BACKEND_PASSWORD:-}
       APP_URL: ${APP_URL:-}
+      # The optional dashboard login: with a password here (8 characters or more) the dashboard asks for it; empty means open.
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      DASHBOARD_SESSION_DAYS: ${DASHBOARD_SESSION_DAYS:-}
       # Browser and installed-app notifications (Web Push). On by default; PUSH_ENABLED=no turns them off.
       PUSH_ENABLED: ${PUSH_ENABLED:-}
       PUSH_SUBJECT: ${PUSH_SUBJECT:-}

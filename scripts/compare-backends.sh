@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the Go and Rust backends side by side on one SCRATCH database and compares their answers.
-#   scripts/compare-backends.sh [requests] [seed]
+#   [COMPARE_PASSWORD=...] scripts/compare-backends.sh [requests] [seed]
 # Needs scripts/scratch-db.sh up first (or TEST_DATABASE_URL pointing at a disposable database).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,6 +18,8 @@ fi
 
 (cd backend-go && go build -o "$TMP/go-server" ./cmd/server)
 (cd backend-rust && cargo build --release -q) && cp backend-rust/target/release/speedtest-backend "$TMP/rust-server"
+# COMPARE_PASSWORD=<password> turns the dashboard login on in both and compares the login flows too; everything else is then asked signed in.
+export DASHBOARD_PASSWORD="${COMPARE_PASSWORD:-}"
 export DATABASE_URL="$URL" TIMEZONE=America/Phoenix API_TOKENS="laptop=tok-laptop,phone=tok-phone" INGEST_RATE_PER_MIN=0 OOKLA_ACCEPT_LICENSE=yes OOKLA_PATH="$PWD/frontend-shared/e2e/fake-speedtest.sh" ONDEMAND_PER_MINUTE=100000 COMPARE_ONDEMAND=1
 LISTEN_ADDR=127.0.0.1:8091 "$TMP/go-server" >"$TMP/go.log" 2>&1 & PIDS+=($!)
 LISTEN_ADDR=127.0.0.1:8092 "$TMP/rust-server" >"$TMP/rust.log" 2>&1 & PIDS+=($!)

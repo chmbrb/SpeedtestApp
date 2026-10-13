@@ -11,6 +11,10 @@ export TIMEZONE=America/Phoenix                    # default zone for time-serie
 go run ./cmd/server                                # listens on :8080 (LISTEN_ADDR to change)
 ```
 Other settings: `INGEST_RATE_PER_MIN` (per-device POST rate, default 30, burst 20, `0` = unlimited, for tests; it also lifts the limits on the browser-notification endpoints).
+Optional dashboard login: `DASHBOARD_PASSWORD` (8 to 200 characters; empty or unset means no login) and `DASHBOARD_SESSION_DAYS` (default 30, 1 to 365).
+With a password every endpoint needs a session cookie except `/api/v1/health`, `/api/v1/auth/*`, the built frontend, and the endpoints that
+have their own bearer token (`POST /api/v1/results`, `POST /api/v1/tests/{id}/result`, `POST /api/v1/tests` with a token); see `internal/login`
+and `internal/api/session.go`, and `docs/DEPLOY.md`. It needs migration `009` (the signing key's table).
 Needs migrations `001`-`005` from `sql/postgres/` applied. Quote the URL in single quotes in zsh if the password has `!`.
 
 ## On-demand tests

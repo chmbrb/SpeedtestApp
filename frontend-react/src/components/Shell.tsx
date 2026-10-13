@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { ThemeChoice } from '../state/theme'
+import { signOut, useAuth } from '../state/useAuth'
 import { AutoIcon, MoonIcon, OfflineIcon, SunIcon, Segmented } from './ui'
 
 export function useOnline(): boolean {
@@ -15,7 +16,7 @@ export function useOnline(): boolean {
 }
 
 /** A small mark: a rising line inside a ring, echoing the app icon. */
-function Mark() {
+export function Mark() {
   return (
     <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" rx="8" fill="var(--ink)" />
@@ -25,6 +26,7 @@ function Mark() {
 }
 
 export function Header({ theme, onTheme, actions }: { theme: ThemeChoice; onTheme: (t: ThemeChoice) => void; actions?: ReactNode }) {
+  const { required } = useAuth()
   return (
     <header className="topbar">
       <a className="brand" href="/" aria-label="Speedtest, home">
@@ -33,6 +35,7 @@ export function Header({ theme, onTheme, actions }: { theme: ThemeChoice; onThem
       </a>
       <div className="topbar-right">
         {actions}
+        {required && <button type="button" className="btn" onClick={signOut} data-testid="signout">Sign out</button>}
         <Segmented<ThemeChoice> label="Theme" value={theme} onChange={onTheme}
           options={[
             { value: 'dark', label: 'Dark', icon: <MoonIcon /> },

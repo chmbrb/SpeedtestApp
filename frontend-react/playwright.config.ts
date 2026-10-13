@@ -17,5 +17,18 @@ export default defineConfig({
     launchOptions: { args: process.env.E2E_IGNORE_HTTPS_ERRORS ? ['--ignore-certificate-errors'] : [] }, // service workers need this too
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+  // With E2E_PASSWORD set, the server has a dashboard login and that is its password: sign in once (the "setup" project), run the
+  // whole suite signed in, and run login.spec.ts on its own, signed out. Without it the server is open and login.spec.ts is left out.
+  projects: process.env.E2E_PASSWORD
+    ? [
+        { name: 'setup', testMatch: /auth\.setup\.ts/, use: { browserName: 'chromium' } },
+        {
+          name: 'signed-in',
+          dependencies: ['setup'],
+          testIgnore: /login\.spec\.ts|auth\.setup\.ts/,
+          use: { browserName: 'chromium', storageState: 'playwright/.auth/state.json' },
+        },
+        { name: 'login', testMatch: /login\.spec\.ts/, use: { browserName: 'chromium' } },
+      ]
+    : [{ name: 'chromium', testIgnore: /login\.spec\.ts|auth\.setup\.ts/, use: { browserName: 'chromium' } }],
 })

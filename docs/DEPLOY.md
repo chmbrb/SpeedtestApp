@@ -158,6 +158,42 @@ and recoveries), so `NTFY_TOPIC` must be set (`setup.sh` does it). You can use n
 - A device is removed from the list when its browser says it is gone, or after five failed deliveries in a row. Turn notifications on again
   to re-register it. At most 50 devices can be registered.
 
+## Dashboard login (optional)
+
+By default anyone who can reach the dashboard can open it, start a test and turn on notifications for their own device. If that is
+not what you want (the port is reachable by people you do not trust, or the app is behind a domain), turn on the login: **one shared
+password for the whole dashboard**.
+
+1. In `.env` set `DASHBOARD_PASSWORD` to a password of 8 to 200 characters. Put it in quotes if it has spaces or a `#`.
+2. Run `docker compose up -d` (from `deploy/`). The backend restarts with the login on.
+
+From then on the dashboard shows a sign-in page first, and every request to the API needs the signed-in session. A **Sign out**
+button appears at the top. Leave `DASHBOARD_PASSWORD` empty (the default) and nothing changes.
+
+What stays open on purpose:
+
+- **The page itself** (so the sign-in page can load) and the **health check** (`/api/v1/health`, which the containers use).
+- **Collectors** (see "Getting results in"): they send results with their own device tokens and never use the password. The same goes
+  for a browser test submitting its own result. A collector can also start a test on its device with its token.
+- **ntfy** is a separate server with its own login (see "Phone notifications") and is not affected.
+
+Good to know:
+
+- **Use https.** Over plain `http://` (port 8080) the password crosses your network unencrypted. The bundled https proxy (port 8443)
+  makes the session cookie `Secure` as well. See "HTTPS on your network".
+- **The password is stored in `.env` in plain text**, like the other secrets in that file, so use one you use nowhere else. A
+  sign-in is a signed cookie (`HttpOnly`, `SameSite=Strict`), valid for `DASHBOARD_SESSION_DAYS` days (default 30, 1 to 365).
+- **Changing the password signs everybody out.** Edit `DASHBOARD_PASSWORD` and run `docker compose up -d`: every earlier cookie stops
+  working at once. That is also how to lock out a browser you lost, and how to recover a password you forgot: set a new one.
+  **Sign out** forgets the cookie in that browser only; a copy of it elsewhere stays valid until it expires or the password changes.
+- **Wrong passwords are slowed down:** 5 tries in a burst and then 6 a minute for each address, and 30 a minute for everybody
+  together, whether the password is right or wrong.
+- **Offline copy:** the app keeps the last data it saw for offline use. Signing out, or a session that ends, deletes that copy.
+- **Switching between the Go and the Rust version** keeps everybody signed in: they share the signing key (kept in the database,
+  `session_key`, made on first start).
+- **Upgrading an existing installation** needs migration `009` (it adds that table). `docker compose up -d --build` applies it, like
+  every migration, and it does nothing if the login is off.
+
 ## Getting results in
 
 The dashboard shows what is in the database, so something has to run speed tests and send the results. On the machine that should be
@@ -264,6 +300,7 @@ All in `deploy/.env` (see `.env.example` for every setting). Common ones:
 | `TIMEZONE` | default time zone for charts |
 | `API_TOKENS` | who may send results: `device=token,device2=token2` |
 | `OOKLA_ACCEPT_LICENSE` | see above |
+| `DASHBOARD_PASSWORD`, `DASHBOARD_SESSION_DAYS` | the optional dashboard login: empty (default) means no login; see "Dashboard login" |
 | `DEVICE_NAME`, `SERVER_CONNECTION_TYPE` | what tests run by the server itself are recorded as |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | how much log each container keeps: files of this size (default `10m`) and how many (default `3`), so 30 MB per container at most. The oldest is dropped first |
 
@@ -298,10 +335,11 @@ The `migrate` service applies any new schema before the backend starts.
 - **Your own reverse proxy instead of the bundled HTTPS** (for example one that already has certificates for a domain): point it at port 8080
   and drop the `https` service. The bundled nginx records the address it sees on that port, so tell it about your proxy
   (`set_real_ip_from` in `frontend-react/docker/default.conf.template`), or every visitor will look like the proxy.
-- **Starting a test needs no login.** It is rate-limited and only one server test runs at a time, but anyone who can reach the dashboard
-  can start one. Keep the port off the internet unless you add your own access control.
+- **Starting a test needs no login, unless you turn on the dashboard login.** It is rate-limited and only one server test runs at a time,
+  but anyone who can reach the dashboard can start one. Turn on the login (see "Dashboard login"), or keep the port off the internet.
 - **Anyone who can open the dashboard can turn on notifications for their own device** and so will see the alerts, just as they can already
-  read the results. The server only ever sends to real browser push services, never to an address the visitor chooses.
+  read the results (with the login on, that means everyone who has the password). The server only ever sends to real browser push services,
+  never to an address the visitor chooses.
 - **Backups:** `docker compose exec -T db pg_dump -U postgres speedtestdb > backup.sql`.
 - **Secrets:** `.env` holds every password. It is created readable by you only; keep it out of git (it is ignored by default).
 - **Moving existing data in:** see `sql/postgres/002_migrate_data.sql` and `scripts/export_speedtests.py`; load into this database with

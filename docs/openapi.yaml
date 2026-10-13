@@ -18,11 +18,18 @@ info:
     - Errors use RFC 9457 `application/problem+json`.
     - Ookla and NDT7 are not directly comparable (parallel vs single connection). Clients should not
       mix providers in one series unless the user asks to.
+    - **Login (optional).** A server can be set up with one shared dashboard password. When it is, every endpoint answers
+      `401` (`login required`) unless the request carries a valid session cookie, except: the health check, the three
+      `/api/v1/auth/*` endpoints, and the endpoints that have their own bearer token (`POST /api/v1/results`,
+      `POST /api/v1/tests/{id}/result`, and `POST /api/v1/tests` when it carries a device token). The built web app is
+      always served, so the login page can load. With no password set nothing changes: every endpoint is open, as before.
+      `GET /api/v1/auth/session` says which of the two a server is.
 servers:
   - url: http://localhost:5000
     description: Local development
 security:
-  - {}   # public by default (LAN); operations that need a token say so explicitly
+  - {}   # public unless the server has a login (then a session cookie, see above); operations that need a token say so explicitly
+  - sessionCookie: []
 tags:
   - name: Results
     description: Stored speedtest results.
@@ -36,6 +43,8 @@ tags:
     description: Status of the ntfy alerts. Configuration is by environment variables on the server, never through the API.
   - name: Push
     description: Browser and installed-app notifications (Web Push). A browser subscribes itself; the server sends the same alerts ntfy gets.
+  - name: Auth
+    description: The optional dashboard login (one shared password, a signed session cookie).
 paths:
   /api/v1/health:
     get:
@@ -54,6 +63,83 @@ paths:
                   status: { type: string, enum: [ok] }
                   version: { type: string }
         "503": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/auth/session:
+    get:
+      tags: [Auth]
+      operationId: getAuthSession
+      summary: Whether a login is required, and whether this browser is signed in
+      description: |
+        Never needs a session and never answers with an error. With no login on the server, `required` is false and
+        `authenticated` is always true. The answer is never cached.
+      security:
+        - {}
+      responses:
+        "200":
+          description: The state of this browser's session
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSession" }
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Sign in with the shared password
+      description: |
+        On success the answer sets the session cookie: `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` when the request
+        came over https. It stays valid for `DASHBOARD_SESSION_DAYS` (default 30) or until the password is changed. Attempts
+        are limited per address and overall; the limit applies to right and wrong passwords alike.
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        "204":
+          description: Signed in
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: The session cookie (`speedtest_session`).
+        "400": { $ref: "#/components/responses/Problem" }
+        "401":
+          description: Wrong password
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404":
+          description: This server has no login
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Forget the session cookie in this browser
+      description: |
+        Always answers 204 and clears the cookie. A session is a signed cookie, not a record on the server, so copies of it
+        elsewhere stay valid until they expire. Changing the server's password ends every session at once.
+      security:
+        - {}
+      responses:
+        "204":
+          description: The cookie was cleared
+          headers:
+            Set-Cookie:
+              schema: { type: string }
 
   /api/v1/capabilities:
     get:
@@ -532,6 +618,11 @@ components:
       type: http
       scheme: bearer
       description: Single-use token returned by `POST /api/v1/tests` for a browser test.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: speedtest_session
+      description: Set by `POST /api/v1/auth/login`. Only servers that have a login use it.
 
   parameters:
     From:
@@ -605,6 +696,16 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
 
   schemas:
+    AuthSession:
+      type: object
+      required: [required, authenticated]
+      properties:
+        required:
+          type: boolean
+          description: Whether this server asks for a login at all.
+        authenticated:
+          type: boolean
+          description: Whether this browser may use the API. Always true when no login is required.
     PushConfig:
       type: object
       required: [enabled]

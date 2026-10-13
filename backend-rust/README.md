@@ -27,7 +27,7 @@ variables too: `OOKLA_ACCEPT_LICENSE` (exactly `yes`: your decision, see `docs/D
 `ONDEMAND_TIMEOUT_SECONDS`, `BROWSER_TEST_TTL_MINUTES`, `ONDEMAND_PER_MINUTE`, `TRUST_PROXY`. Alerts are off until `NTFY_TOPIC` is set; the rest
 (`NTFY_URL`, `NTFY_USER`/`NTFY_PASSWORD` or `NTFY_TOKEN`, `NTFY_SLOW_RATIO`, `NTFY_SLOW_CONSECUTIVE`, `NTFY_RECOVER_RATIO`, `NTFY_LOSS_PCT`,
 `NTFY_LOSS_CONSECUTIVE`, `NTFY_SILENCE_MIN_HOURS`, `NTFY_REMIND_HOURS`, `NTFY_BASELINE_DAYS`, `NTFY_MIN_SAMPLES`, `NTFY_CHECK_SECONDS`) are the Go
-backend's. Browser push is on by default (`PUSH_ENABLED=no`, `PUSH_SUBJECT`, `PUSH_ALLOWED_HOSTS`). `speedtest-backend notify-test` sends one
+backend's. Browser push is on by default (`PUSH_ENABLED=no`, `PUSH_SUBJECT`, `PUSH_ALLOWED_HOSTS`). The optional dashboard login (`DASHBOARD_PASSWORD`, `DASHBOARD_SESSION_DAYS`; `src/login.rs`, `src/session_api.rs`) is the Go backend's, cookie for cookie: a session made by one is accepted by the other. `speedtest-backend notify-test` sends one
 message to ntfy without a database. The schema is `sql/postgres/*.sql`, applied exactly as for the Go backend.
 
 ## Container

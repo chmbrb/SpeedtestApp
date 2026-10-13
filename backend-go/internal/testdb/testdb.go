@@ -69,7 +69,7 @@ func Pool(t testing.TB) *pgxpool.Pool {
 	if err := ProcessLock(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `TRUNCATE speedtests, alert_state, notify_cursor, notification_events, push_subscriptions, push_vapid CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE speedtests, alert_state, notify_cursor, notification_events, push_subscriptions, push_vapid, session_key CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 	return pool

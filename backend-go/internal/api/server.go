@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chmbrb/SpeedtestApp/backend-go/internal/login"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/model"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/notify"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/store"
@@ -48,6 +49,9 @@ type Server struct {
 	pushTestLimiter *limiter
 	onDemand        OnDemand
 	trustProxy      bool
+	login           *login.Service // nil: no login, the dashboard is open
+	loginLimiter    *limiter       // per address
+	loginGlobal     *limiter       // all addresses together
 }
 
 func NewServer(st Store, auth *Authenticator, defaultTZ string, log *slog.Logger) *Server {
@@ -64,6 +68,9 @@ func NewServer(st Store, auth *Authenticator, defaultTZ string, log *slog.Logger
 	s.mux.HandleFunc("POST /api/v1/push/subscriptions", s.pushSubscribe)
 	s.mux.HandleFunc("DELETE /api/v1/push/subscriptions", s.pushUnsubscribe)
 	s.mux.HandleFunc("POST /api/v1/push/test", s.pushTest)
+	s.mux.HandleFunc("GET /api/v1/auth/session", s.authSession)
+	s.mux.HandleFunc("POST /api/v1/auth/login", s.authLogin)
+	s.mux.HandleFunc("POST /api/v1/auth/logout", s.authLogout)
 	s.mux.HandleFunc("GET /api/v1/capabilities", s.capabilities)
 	s.mux.HandleFunc("GET /api/v1/tests", s.listTests)
 	s.mux.HandleFunc("POST /api/v1/tests", s.createTest)
@@ -75,14 +82,16 @@ func NewServer(st Store, auth *Authenticator, defaultTZ string, log *slog.Logger
 }
 
 // SetIngestRate sets the sustained POST rate allowed per device, per minute (burst 20). 0 disables limiting, including the
-// limits on the browser-notification endpoints: it exists so load and fuzz tests can run, not for normal use.
+// limits on the browser-notification endpoints (and on login attempts, if SetLogin came first): it exists so load and fuzz tests can run, not for normal use.
 func (s *Server) SetIngestRate(perMinute int) {
 	s.limitIngest = perMinute > 0
 	if perMinute > 0 {
 		s.limiter = newLimiter(20, perMinute)
+		s.resetLoginLimits()
 		return
 	}
 	s.pushLimiter, s.pushTestLimiter = newLimiter(1_000_000, 1_000_000), newLimiter(1_000_000, 1_000_000)
+	s.resetLoginLimits()
 }
 
 // SetNotifications connects the alert monitor so its status can be shown. Without it the endpoint reports "off".
@@ -90,7 +99,7 @@ func (s *Server) SetNotifications(n Notifications) { s.notifier = n }
 
 // Handler wraps the routes with panic recovery, access logging, and problem+json 404/405 responses.
 func (s *Server) Handler() http.Handler {
-	return s.recoverer(s.logRequests(http.HandlerFunc(s.route)))
+	return s.recoverer(s.logRequests(s.gate(http.HandlerFunc(s.route))))
 }
 
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {

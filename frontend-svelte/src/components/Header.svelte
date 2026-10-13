@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { authState, signOut } from '../lib/auth.svelte'
   import { theme } from '../lib/theme.svelte'
   import Segmented from './Segmented.svelte'
 
@@ -17,6 +18,7 @@
   </a>
   <div class="topbar-right">
     {#if actions}{@render actions()}{/if}
+    {#if authState.required}<button type="button" class="btn" onclick={signOut} data-testid="signout">Sign out</button>{/if}
     <Segmented label="Theme" value={theme.choice} onChange={theme.set}
       options={[
         { value: 'dark', label: 'Dark', icon: 'moon' },

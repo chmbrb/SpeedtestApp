@@ -20,5 +20,6 @@ run 005_providers_and_tests.sql
 run 006_notifications.sql
 run 007_web_push.sql
 run 008_devices_summary_index.sql
+run 009_session_key.sql
 
 echo "migrate: done"

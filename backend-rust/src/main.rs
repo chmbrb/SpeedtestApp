@@ -1,6 +1,7 @@
 use speedtest_backend::{
     app,
     config::Config,
+    login,
     notify::{
         config::Config as NtfyConfig,
         monitor::Monitor,
@@ -63,6 +64,17 @@ async fn run() -> Result<(), String> {
     let mut state = app::AppState::new(store.clone(), &cfg.timezone, static_dir)
         .with_auth(cfg.tokens.clone(), cfg.ingest_per_minute)
         .with_ondemand(Arc::clone(&manager));
+
+    match login::config_from_env(|k| std::env::var(k).ok()).map_err(|e| format!("invalid login settings: {e}"))? {
+        Some(lcfg) => {
+            let days = lcfg.lifetime.as_secs() / 86_400;
+            state = state.with_login(login::Service::new(lcfg, &store).await?);
+            tracing::info!(session_days = days, "dashboard login on");
+        }
+        None => tracing::info!(
+            "dashboard login off: anyone who can reach the dashboard can open it (set DASHBOARD_PASSWORD to turn the login on)"
+        ),
+    }
 
     // Browser notifications (Web Push) ride on the same alerts as ntfy.
     let ntfy_cfg = NtfyConfig::from_env(|k| std::env::var(k).ok()).map_err(|e| format!("invalid ntfy settings: {e}"))?;

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/config"
+	"github.com/chmbrb/SpeedtestApp/backend-go/internal/login"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/store"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -501,5 +502,65 @@ func TestIntegrationHealth(t *testing.T) {
 	rec := do(t, itSrv, "GET", "/api/v1/health", "", "")
 	if rec.Code != http.StatusOK {
 		t.Errorf("health: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestIntegrationSessionKeyIsKeptInTheDatabaseAndSurvivesARestart(t *testing.T) {
+	needDB(t)
+	ctx := context.Background()
+	if _, err := itPool.Exec(ctx, `TRUNCATE session_key`); err != nil {
+		t.Fatal(err)
+	}
+	cfg := login.Config{Password: "a long enough password", Lifetime: time.Hour}
+	first, err := login.New(ctx, cfg, store.New(itPool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := itPool.QueryRow(ctx, `SELECT count(*) FROM session_key`).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("session_key rows = %d (%v), want 1", rows, err)
+	}
+	// a restarted server (or the other backend) reads the same key, so nobody is signed out
+	second, err := login.New(ctx, cfg, store.New(itPool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := first.Issue(); !second.Valid(v) {
+		t.Error("a restart signed everybody out")
+	}
+	if err := itPool.QueryRow(ctx, `SELECT count(*) FROM session_key`).Scan(&rows); err != nil || rows != 1 {
+		t.Errorf("a second start left %d keys", rows)
+	}
+	// the backend's limited database login must be able to read and create the key
+	var granted *bool
+	if err := itPool.QueryRow(ctx, `SELECT CASE WHEN EXISTS (SELECT FROM pg_roles WHERE rolname = 'speedtest')
+		THEN has_table_privilege('speedtest', 'session_key', 'SELECT') AND has_table_privilege('speedtest', 'session_key', 'INSERT') END`).Scan(&granted); err != nil {
+		t.Fatal(err)
+	}
+	if granted != nil && !*granted {
+		t.Error("the speedtest role cannot use session_key (migration 009 grants)")
+	}
+}
+
+func TestIntegrationLoginProtectsTheRealEndpoints(t *testing.T) {
+	needDB(t)
+	ctx := context.Background()
+	if _, err := itPool.Exec(ctx, `TRUNCATE session_key`); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, "2026-06-01T10:00:00Z", "server", "wired", "scheduled", 100, 10, nil, 10)
+	svc, err := login.New(ctx, login.Config{Password: "a long enough password", Lifetime: time.Hour}, store.New(itPool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(store.New(itPool), NewAuthenticator(config.ParseTokens("laptop=tok-laptop")), "UTC", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.SetLogin(svc)
+	if rec := call(t, s, "GET", "/api/v1/results", opts{}); rec.Code != 401 {
+		t.Fatalf("results without a session: %d", rec.Code)
+	}
+	cookie, _ := svc.Issue()
+	rec := call(t, s, "GET", "/api/v1/results", opts{cookie: cookie})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"device":"server"`) {
+		t.Errorf("results with a session: %d %s", rec.Code, rec.Body)
 	}
 }

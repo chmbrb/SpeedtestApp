@@ -4,3 +4,4 @@ speedtests_export.csv
 collector-go/dist/
 __pycache__/
 backend-rust/target/
+frontend-*/playwright/.auth/

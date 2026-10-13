@@ -14,8 +14,13 @@ const rand = () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math
 const pick = (a) => a[Math.floor(rand() * a.length)]
 const maybe = (p) => rand() < p
 
+// With COMPARE_PASSWORD both servers have a dashboard login and everything below is asked signed in. (One session cookie works on
+// both: they share the database key. Pass `headers: { cookie: '' }` to ask without it.)
+let sessionCookie = null
+const withCookie = (headers = {}) => (sessionCookie ? { cookie: 'speedtest_session=' + sessionCookie, ...headers } : headers)
+
 async function ask(base, path, init = {}) {
-  const res = await fetch(base + path, { ...init, headers: { accept: 'application/json', ...(init.headers ?? {}) } })
+  const res = await fetch(base + path, { ...init, headers: { accept: 'application/json', ...withCookie(), ...(init.headers ?? {}) } })
   const text = await res.text()
   let body
   try { body = JSON.parse(text) } catch { body = text }
@@ -66,6 +71,75 @@ async function both(path, init, ignore) {
   compare(init?.method ? `${init.method} ${path}${init.label ? '  [' + init.label + ']' : ''}` : path, go, rust, ignore)
   return { go, rust }
 }
+
+// ---- the login (only when COMPARE_PASSWORD is set) ------------------------------------------------------------------------------
+/** What a Set-Cookie line says, without what must differ between servers (the value, the exact expiry). */
+function cookieShape(line) {
+  const [pair, ...attrs] = line.split(';').map((x) => x.trim())
+  const [name, value = ''] = [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)]
+  const a = Object.fromEntries(attrs.map((x) => { const i = x.indexOf('='); return i < 0 ? [x.toLowerCase(), true] : [x.slice(0, i).toLowerCase(), x.slice(i + 1)] }))
+  const expires = Date.parse(a.expires ?? '')
+  return { name, empty: value === '', value, attrs: { ...a, expires: Number.isNaN(expires) ? 'invalid' : 'present' }, expiresAt: expires }
+}
+
+async function postLogin(base, body) {
+  const res = await fetch(base + '/api/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) })
+  return { status: res.status, setCookie: res.headers.get('set-cookie') }
+}
+
+async function authFlows(password) {
+  const none = { cookie: '' }
+  // The gate: the same endpoints refuse without a session, the same ones stay open.
+  for (const [method, path] of [['GET', '/api/v1/devices'], ['HEAD', '/api/v1/devices'], ['GET', '/api/v1/results'], ['GET', '/api/v1/stats/summary'], ['GET', '/api/v1/stats/timeseries'],
+    ['GET', '/api/v1/notifications'], ['GET', '/api/v1/capabilities'], ['GET', '/api/v1/push/config'], ['POST', '/api/v1/push/subscriptions'], ['DELETE', '/api/v1/push/subscriptions'],
+    ['POST', '/api/v1/push/test'], ['GET', '/api/v1/tests'], ['POST', '/api/v1/tests'], ['GET', '/api/v1/tests/abc'], ['DELETE', '/api/v1/tests/abc'], ['GET', '/api/v1/tests/abc/events'],
+    ['GET', '/api/v1/nothing'], ['POST', '/api/v1/devices'], ['GET', '/api/v1/health/'], ['GET', '/api/v1/auth/login'], ['GET', '/api/v1/tests/a/b/result'], ['POST', '/api/v1/tests//result']])
+    await both(path, { method, headers: none, label: 'no session' })
+  await both('/api/v1/health', { headers: none, label: 'no session' })
+  await both('/api/v1/auth/session', { headers: none, label: 'no session' })
+  // Their own bearer token, not a session: answered by the handlers, the same on both.
+  await both('/api/v1/results', { method: 'POST', headers: { ...none, authorization: 'Bearer nope' }, body: '{}', label: 'no session, wrong token' })
+  await both('/api/v1/results', { method: 'POST', headers: none, body: '{}', label: 'no session, no token' })
+  await both('/api/v1/results', { method: 'POST', headers: { ...none, authorization: 'Bearer tok-laptop' }, body: '{}', label: 'no session, right token' })
+  await both('/api/v1/tests', { method: 'POST', headers: { ...none, authorization: 'Bearer nope' }, body: '{}', label: 'no session, wrong token' })
+  await both('/api/v1/tests/abc/result', { method: 'POST', headers: { ...none, authorization: 'Bearer nope' }, body: '{}', label: 'no session, wrong submit token' })
+  // Refused logins: same status, same problem fields.
+  const login = (body, label) => both('/api/v1/auth/login', { method: 'POST', headers: { ...none, 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body), label: label ?? String(typeof body === 'string' ? body : JSON.stringify(body)).slice(0, 60) })
+  for (const body of [{ password: 'wrong' }, { password: '' }, {}, { password: null }, { password: 5 }, { password: password + ' ' }, { password: password.toUpperCase() }, { password: 'x'.repeat(3000) },
+    '', '{', '[]', 'null', '"x"', '5', '{"password":"x"} trailing', '{"password":"x"}{"password":"y"}', '\ufeff{"password":"x"}', '{"password":"x","extra":1}'])
+    await login(body)
+  // Signing in: both set a session cookie of the same shape (also for a differently-cased field name, which Go's decoder accepts).
+  const shapes = {}
+  for (const [who, base] of [['Go', goUrl], ['Rust', rustUrl]]) {
+    const r = await postLogin(base, { password })
+    if (r.status !== 204 || !r.setCookie) { problems.push(`login (${who})\n    status ${r.status}, Set-Cookie ${r.setCookie}`); continue }
+    shapes[who] = { ...cookieShape(r.setCookie), cookie: r.setCookie.split(';')[0].split('=')[1] }
+  }
+  if (shapes.Go && shapes.Rust) {
+    compared++
+    const d = diff({ name: shapes.Go.name, attrs: shapes.Go.attrs }, { name: shapes.Rust.name, attrs: shapes.Rust.attrs })
+    if (d) problems.push(`login: the session cookie\n    ${d}  (Go ${JSON.stringify(shapes.Go.attrs)}, Rust ${JSON.stringify(shapes.Rust.attrs)})`)
+    const days = (shapes.Go.expiresAt - Date.now()) / 86400e3
+    if (Math.abs(shapes.Go.expiresAt - shapes.Rust.expiresAt) > 5000 || days < 29 || days > 31) problems.push(`login: the cookie expiry\n    Go ${new Date(shapes.Go.expiresAt).toISOString()}, Rust ${new Date(shapes.Rust.expiresAt).toISOString()}`)
+    for (const [issuer, cookie, other, otherUrl] of [['Go', shapes.Go.cookie, 'Rust', rustUrl], ['Rust', shapes.Rust.cookie, 'Go', goUrl]]) {
+      compared++
+      const r = await ask(otherUrl, '/api/v1/devices', { headers: { cookie: 'speedtest_session=' + cookie } })
+      if (r.status !== 200) problems.push(`a session cookie made by ${issuer}, used on ${other}\n    status ${r.status}`)
+    }
+    sessionCookie = shapes.Go.cookie
+  }
+  // Cookies that are not good, and signing out.
+  const bad = [sessionCookie.slice(0, -1) + (sessionCookie.endsWith('A') ? 'B' : 'A'), 'abc', '', 's1.1000000000.' + sessionCookie.split('.')[2], 's1.' + sessionCookie.split('.')[1]]
+  for (const c of bad) { await both('/api/v1/devices', { headers: { cookie: 'speedtest_session=' + c }, label: 'bad cookie' }); await both('/api/v1/auth/session', { headers: { cookie: 'speedtest_session=' + c }, label: 'bad cookie' }) }
+  await both('/api/v1/auth/session', { label: 'signed in' })
+  await both('/api/v1/capabilities', { headers: { cookie: 'theme=dark; speedtest_session=' + sessionCookie + '; other=1' }, label: 'several cookies' })
+  const outs = await Promise.all([goUrl, rustUrl].map(async (b) => { const r = await fetch(b + '/api/v1/auth/logout', { method: 'POST' }); return { status: r.status, shape: cookieShape(r.headers.get('set-cookie') ?? '') } }))
+  compared++
+  const od = diff({ status: outs[0].status, name: outs[0].shape.name, empty: outs[0].shape.empty, attrs: outs[0].shape.attrs }, { status: outs[1].status, name: outs[1].shape.name, empty: outs[1].shape.empty, attrs: outs[1].shape.attrs })
+  if (od || outs[0].status !== 204 || !outs[0].shape.empty) problems.push(`logout\n    ${od ?? 'the cookie was not cleared'}`)
+  console.log('login flows done')
+}
+if (process.env.COMPARE_PASSWORD) await authFlows(process.env.COMPARE_PASSWORD)
 
 // ---- what to ask -----------------------------------------------------------------------------------------------------------
 const devices = (await ask(goUrl, '/api/v1/devices')).body.items
@@ -211,7 +285,7 @@ await both('/api/v1/results', { method: 'POST', headers: { authorization: 'Beare
 await both('/api/v1/nope')
 await both('/api/v1/results/')
 for (const m of ['POST', 'PUT', 'DELETE']) {
-  const [a, b] = await Promise.all([fetch(goUrl + '/api/v1/devices', { method: m }), fetch(rustUrl + '/api/v1/devices', { method: m })])
+  const [a, b] = await Promise.all([fetch(goUrl + '/api/v1/devices', { method: m, headers: withCookie() }), fetch(rustUrl + '/api/v1/devices', { method: m, headers: withCookie() })])
   compare(`${m} /api/v1/devices`, { status: a.status, type: a.headers.get('content-type'), body: await a.json() }, { status: b.status, type: b.headers.get('content-type'), body: await b.json() })
 }
 for (let i = 0; i < N; i++) await pick([results, results, detail, summary, summary, timeseries, timeseries, timeseries, ingest, ingest, ingest])()
@@ -238,7 +312,7 @@ function norm(v) {
 }
 
 async function sse(base, id, { lastEventId, stopAt } = {}) {
-  const res = await fetch(`${base}/api/v1/tests/${id}/events`, { headers: lastEventId ? { 'last-event-id': String(lastEventId) } : {} })
+  const res = await fetch(`${base}/api/v1/tests/${id}/events`, { headers: { ...withCookie(), ...(lastEventId ? { 'last-event-id': String(lastEventId) } : {}) } })
   if (!res.ok) return { status: res.status, events: [] }
   const events = []
   let buf = ''

@@ -13,6 +13,7 @@ import (
 
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/api"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/config"
+	"github.com/chmbrb/SpeedtestApp/backend-go/internal/login"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/notify"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/ondemand"
 	"github.com/chmbrb/SpeedtestApp/backend-go/internal/push"
@@ -73,6 +74,21 @@ func run(log *slog.Logger) error {
 		log.Info("on-demand tests ready", "ookla", "on", "device", ocfg.DeviceName)
 	} else {
 		log.Info("on-demand tests: Ookla is off", "why", why, "ndt7", "on (runs in the visitor's browser)")
+	}
+
+	lcfg, loginOn, err := login.FromEnv(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("invalid login settings: %w", err)
+	}
+	if loginOn {
+		sessions, err := login.New(ctx, lcfg, store.New(pool))
+		if err != nil {
+			return err
+		}
+		apiServer.SetLogin(sessions)
+		log.Info("dashboard login on", "session_days", int(lcfg.Lifetime.Hours()/24))
+	} else {
+		log.Info("dashboard login off: anyone who can reach the dashboard can open it (set DASHBOARD_PASSWORD to turn the login on)")
 	}
 
 	ncfg, err := notify.FromEnv(os.Getenv)

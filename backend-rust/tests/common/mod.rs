@@ -84,10 +84,12 @@ impl Harness {
             Some(MARKER),
             "refusing to run: this database is not marked as disposable.\nTo use a scratch database: COMMENT ON DATABASE <name> IS '{MARKER}';"
         );
-        sqlx::query("TRUNCATE speedtests, alert_state, notify_cursor, notification_events, push_subscriptions, push_vapid CASCADE")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "TRUNCATE speedtests, alert_state, notify_cursor, notification_events, push_subscriptions, push_vapid, session_key CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         let state = AppState::new(Store::new(pool.clone()), timezone, static_dir).with_auth(parse_tokens(TOKENS), 0);
         Some(Self { app: router(state), pool, _turn: turn })
     }

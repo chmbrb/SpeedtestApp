@@ -26,6 +26,10 @@ For the on-demand tests, start the backend with the fake Ookla tool (it prints t
 never touches a network): `OOKLA_ACCEPT_LICENSE=yes OOKLA_PATH=$PWD/frontend-shared/e2e/fake-speedtest.sh`. Those tests skip
 themselves with that instruction when Ookla is off. The NDT7 tests run the real M-Lab client library against a local stand-in for
 M-Lab (`e2e/helpers/mlab-mock.ts`), so they need no internet.
+To test behind the dashboard login, start the backend with `DASHBOARD_PASSWORD=<password>` (and `INGEST_RATE_PER_MIN=0`, or the limit on
+sign-in attempts stops the tests from signing in so often) and run `E2E_PASSWORD=<password> E2E_API_TOKEN=<one of its API_TOKENS> npm run e2e`:
+it signs in once, runs the whole suite signed in, and adds `e2e/login.spec.ts` (wrong and right passwords, sign out, a session that ends,
+the offline copy being emptied, a phone screen). Without `E2E_PASSWORD` that spec is left out and the server is expected to be open.
 They cover filters and URL state, chart hover and keyboard use, the table view, theme persistence, a phone-width layout,
 WCAG 2.1 AA checks (axe) in both themes, the manifest and service worker, opening offline, and the notification banner and
 status section (with the API mocked, so every state can be shown).
