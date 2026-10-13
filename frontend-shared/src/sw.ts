@@ -15,8 +15,9 @@ clientsClaim()
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
 
-// App shell works offline; /api is never answered by the precache.
-registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), { denylist: [/^\/api\//] }))
+// App shell works offline; /api is never answered by the precache. /ca.crt is the HTTPS proxy's root certificate (a download
+// for devices to trust, served by Caddy), so it must reach the network instead of being answered with the app.
+registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), { denylist: [/^\/api\//, /^\/ca\.crt$/] }))
 
 // Show the last data seen on this device when the network is down. Never the live parts: the health check, and anything
 // under /tests (the event stream must reach the network, and "a test is running" must not be answered from an old cache),
