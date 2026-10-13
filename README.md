@@ -1,8 +1,8 @@
 # Speedtest App
 
-![Desktop Screenshot](img/desktop-screenshot.png)
-
 A Speedtest application for heuristic data collection, organization, and analysis built to track your homelab network's performance. 
+
+![Desktop Screenshot](img/desktop-screenshot.png)
 
 > **Running it?** `cd deploy && ./setup.sh <your-address> && docker compose up -d --build`. Everything (database, backend, web app and a private
 > ntfy notification server) comes up together. See [docs/DEPLOY.md](docs/DEPLOY.md).
