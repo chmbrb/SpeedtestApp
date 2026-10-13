@@ -64,7 +64,9 @@ API_TOKENS=server=$API_TOKEN
 
 HTTP_PORT=$HTTP_PORT
 # HTTPS with your own private certificate authority (no domain needed). Browsers only allow installing the app and
-# notifications on https pages. HTTPS_HOSTS is every address or name people type, separated by commas.
+# notifications on https pages. HTTPS_HOSTS is every address or name people type, separated by a comma and a space, in quotes
+# (for example "192.168.0.7, speedtest.lan"; Caddy refuses a comma without the space). The first is the default: browsers send no
+# name when you type an IP address, so if people type the IP, list it first.
 HTTPS_PORT=$HTTPS_PORT
 HTTPS_HOSTS=$HOST
 APP_URL=https://$HOST:$HTTPS_PORT
