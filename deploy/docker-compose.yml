@@ -6,8 +6,17 @@
 # Only the frontend, the HTTPS proxy and ntfy publish ports. The database and backend are reachable only from inside this stack.
 name: speedtest
 
+# Docker keeps every container's output forever by default. Cap each container at 3 files of 10 MB (30 MB), oldest dropped first.
+# Override with LOG_MAX_SIZE and LOG_MAX_FILE in .env.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${LOG_MAX_SIZE:-10m}"
+    max-file: "${LOG_MAX_FILE:-3}"
+
 services:
   db:
+    logging: *default-logging
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
@@ -23,6 +32,7 @@ services:
 
   # Applies the schema (and creates the limited database login the backend uses). Safe to run on every start.
   migrate:
+    logging: *default-logging
     build:
       context: ..
       dockerfile: deploy/migrate.Dockerfile
@@ -39,6 +49,7 @@ services:
       APP_DB_PASSWORD: "${DB_APP_PASSWORD:?Run ./setup.sh first}"
 
   backend:
+    logging: *default-logging
     build: ../backend-go
     image: speedtest-backend:local
     restart: unless-stopped
@@ -82,6 +93,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   frontend:
+    logging: *default-logging
     build: ../frontend-react
     image: speedtest-frontend:local
     restart: unless-stopped
@@ -101,6 +113,7 @@ services:
   # that authority once; see docs/DEPLOY.md ("HTTPS on your network"). Browsers only allow installing the app and
   # notifications on https pages.
   https:
+    logging: *default-logging
     build: ./caddy
     image: speedtest-https:local
     restart: unless-stopped
@@ -129,6 +142,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   ntfy:
+    logging: *default-logging
     image: ${NTFY_IMAGE:-binwiederhier/ntfy:v2.29.0}
     command: ["serve"]
     restart: unless-stopped

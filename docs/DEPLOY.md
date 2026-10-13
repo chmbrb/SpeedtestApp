@@ -55,8 +55,10 @@ The price is a one-time step per device: your phone or computer has to be told t
 it. Until it does, the browser shows a certificate warning and the app can't install or send notifications (the dashboard itself still
 opens, and the Notifications section explains what is missing).
 
-**The address.** `setup.sh` puts your machine's address in `HTTPS_HOSTS` in `.env`. To also reach it by name (`192.168.0.7, speedtest.lan`),
-list every address or name people type, separated by commas, change `APP_URL` to match, and run `docker compose up -d`. If your router
+**The address.** `setup.sh` puts your machine's address in `HTTPS_HOSTS` in `.env`. To also reach it by name, list every address or name people type,
+separated by a comma **and a space**, in quotes (`HTTPS_HOSTS="192.168.0.7, speedtest.lan"`; Caddy refuses `192.168.0.7,speedtest.lan`).
+Browsers send no name when you type an IP address, so Caddy answers with the first entry's certificate: if people type the IP address, list
+it first, or they get a certificate warning for the wrong name. Change `APP_URL` to match, and run `docker compose up -d`. If your router
 changes the machine's address, the certificate no longer matches: give the machine a fixed address (a DHCP reservation) first.
 
 **Trust the authority, once per device**
@@ -139,12 +141,13 @@ All in `deploy/.env` (see `.env.example` for every setting). Common ones:
 | Setting | Meaning |
 |---|---|
 | `HTTP_PORT`, `HTTPS_PORT`, `NTFY_PORT` | ports published on this machine |
-| `HTTPS_HOSTS` | every address or name people type to reach the app over https, comma separated (the certificate covers exactly these) |
+| `HTTPS_HOSTS` | every address or name people type to reach the app over https, separated by a comma and a space, in quotes (the certificate covers exactly these; the first is the default) |
 | `APP_URL`, `NTFY_BASE_URL` | how phones and browsers reach the app and ntfy (tapping a notification opens `APP_URL`) |
 | `TIMEZONE` | default time zone for charts |
 | `API_TOKENS` | who may send results: `device=token,device2=token2` |
 | `OOKLA_ACCEPT_LICENSE` | see above |
 | `DEVICE_NAME`, `SERVER_CONNECTION_TYPE` | what tests run by the server itself are recorded as |
+| `LOG_MAX_SIZE`, `LOG_MAX_FILE` | how much log each container keeps: files of this size (default `10m`) and how many (default `3`), so 30 MB per container at most. The oldest is dropped first |
 
 Further tuning (alert thresholds, rate limits) uses the variables in `backend-go/README.md` (the Rust backend reads the same ones); add them to the `backend` service's
 `environment:` in `docker-compose.yml`.
