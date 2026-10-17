@@ -109,8 +109,9 @@ func (s *Store) SaveCursor(ctx context.Context, c Cursor) error {
 	return err
 }
 
-// NewResults returns results stored after the cursor, oldest first. `settledBefore` leaves out the last few
-// seconds so a transaction that committed late is not skipped by a cursor that already moved past it.
+// NewResults returns scheduled results stored after the cursor, oldest first (on-demand tests never alert).
+// `settledBefore` leaves out the last few seconds so a transaction that committed late is not skipped by a cursor that
+// already moved past it.
 func (s *Store) NewResults(ctx context.Context, after Cursor, settledBefore time.Time, limit int) ([]ResultPoint, error) {
 	var id *string
 	if after.ID != "" {
@@ -120,7 +121,7 @@ func (s *Store) NewResults(ctx context.Context, after Cursor, settledBefore time
 		SELECT id::text, created, tested_at, device, connection_type, provider, download_mbps, packet_loss_pct
 		FROM speedtests
 		WHERE (created, id) > ($1, COALESCE($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
-		  AND created <= $3
+		  AND created <= $3 AND "trigger" = 'scheduled'
 		ORDER BY created, id LIMIT $4`, after.T, id, settledBefore, limit)
 	if err != nil {
 		return nil, err
@@ -138,13 +139,13 @@ func (s *Store) NewResults(ctx context.Context, after Cursor, settledBefore time
 	return out, rows.Err()
 }
 
-// Baseline is the median download of an entity over the `days` before `before`, and how many tests that is.
+// Baseline is the median download of an entity's scheduled tests over the `days` before `before`, and how many tests that is.
 func (s *Store) Baseline(ctx context.Context, device, connectionType, provider string, before time.Time, days int) (median float64, n int, err error) {
 	var m *float64
 	err = s.pool.QueryRow(ctx, `
 		SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY download_mbps), count(*)
 		FROM speedtests
-		WHERE device = $1 AND connection_type = $2 AND provider = $3
+		WHERE device = $1 AND connection_type = $2 AND provider = $3 AND "trigger" = 'scheduled'
 		  AND tested_at < $4 AND tested_at >= $4 - make_interval(days => $5)`,
 		device, connectionType, provider, before, days).Scan(&m, &n)
 	if m != nil {

@@ -45,13 +45,15 @@ type harness struct {
 
 var t0 = time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 
-// newHarness seeds 12 results of history (a typical download of 900 Mbps) for server/wired/ookla, then runs the first
-// check so the cursor sits at "now". Results added afterwards are the ones that can alert.
+// newHarness seeds 12 scheduled results of history (a typical download of 900 Mbps) for server/wired/ookla, then runs
+// the first check so the cursor sits at "now". Results added afterwards are the ones that can alert. The streaks are 2
+// (not the default 1) so the tests can see a streak build up, and the "gone quiet" rule is kept out of the way.
 func newHarness(t *testing.T, mutate func(*Config)) *harness {
 	t.Helper()
 	pool := testdb.Pool(t)
 	cfg := Defaults()
 	cfg.Enabled, cfg.Topic, cfg.ServerURL = true, "secret-topic", "https://ntfy.example.org"
+	cfg.SlowConsecutive, cfg.LossConsecutive, cfg.SilenceMin = 2, 2, 365*24*time.Hour
 	if mutate != nil {
 		mutate(&cfg)
 	}
@@ -69,7 +71,7 @@ func newHarness(t *testing.T, mutate func(*Config)) *harness {
 		if i%2 == 0 {
 			dl = 920
 		}
-		h.insert("server", "wired", "ookla", "on_demand", t0.Add(-time.Duration(24-i)*time.Hour), dl, nil)
+		h.insert("server", "wired", "ookla", "scheduled", t0.Add(-time.Duration(24-i)*time.Hour), dl, nil)
 	}
 	h.tick()
 	return h
@@ -81,13 +83,18 @@ func (h *harness) insert(device, ct, provider, trigger string, at time.Time, dl 
 		latency_ms, packet_loss_pct, raw_data) VALUES ($1,$2,$3,$4,$5,$5,$6,10,10,$7,'{}')`, provider, trigger, device, ct, at, dl, loss)
 }
 
-// add stores a result as if it had just arrived (on demand, so the "gone quiet" rule stays out of the way).
+// add stores a scheduled result as if it had just arrived.
 func (h *harness) add(dl float64) { h.addFor("server", "wired", "ookla", dl, nil) }
 
 func (h *harness) addFor(device, ct, provider string, dl float64, loss *float64) {
 	h.t.Helper()
+	h.addTriggered(device, ct, provider, "scheduled", dl, loss)
+}
+
+func (h *harness) addTriggered(device, ct, provider, trigger string, dl float64, loss *float64) {
+	h.t.Helper()
 	h.seq++
-	h.insert(device, ct, provider, "on_demand", h.clock.Add(-time.Minute+time.Duration(h.seq)*time.Second), dl, loss)
+	h.insert(device, ct, provider, trigger, h.clock.Add(-time.Minute+time.Duration(h.seq)*time.Second), dl, loss)
 }
 
 func (h *harness) tick() {
@@ -132,7 +139,7 @@ func TestMonitorFirstRunIgnoresHistory(t *testing.T) {
 	// a long slow history already in the database when notifications are first switched on
 	for i := 0; i < 20; i++ {
 		_, err := pool.Exec(ctx, `INSERT INTO speedtests (provider, "trigger", device, connection_type, tested_at, created, download_mbps, upload_mbps, raw_data)
-			VALUES ('ookla','on_demand','server','wired',$1,$1,$2,10,'{}')`, t0.Add(-time.Duration(30-i)*time.Hour), 100+float64(i))
+			VALUES ('ookla','scheduled','server','wired',$1,$1,$2,10,'{}')`, t0.Add(-time.Duration(20-i)*time.Hour), 100+float64(i))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,6 +201,44 @@ func TestMonitorNeedsTwoSlowTestsInARowThenAlertsOnce(t *testing.T) {
 	if err != nil || len(st.Active) != 1 || st.Active[0].Kind != "slow" || st.Active[0].NotifiedAt == nil || len(st.Recent) != 1 || !st.Recent[0].Delivered {
 		t.Errorf("status: %+v %v", st, err)
 	}
+}
+
+func TestMonitorDefaultsToOneOutlier(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.SlowConsecutive, c.LossConsecutive = DefaultOutliers, DefaultOutliers })
+	h.step(time.Hour)
+	h.add(390)
+	h.tick()
+	h.expectSent(1)
+	if m := h.send.sent[0]; m.Title != "Slow download: server (wired)" || !strings.Contains(m.Body, "(1 test in a row)") {
+		t.Errorf("message: %+v", m)
+	}
+	loss := 8.0
+	h.addFor("server", "wired", "ookla", 900, &loss)
+	h.tick()
+	h.expectSent(3) // the slow alert recovers, and one lossy test is enough to alert
+	if got := strings.Join(h.titles(), "; "); !strings.Contains(got, "Recovered: server (wired)") || !strings.Contains(got, "Packet loss: server (wired)") {
+		t.Errorf("%s", got)
+	}
+}
+
+func TestMonitorIgnoresOnDemandTests(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.SlowConsecutive, c.LossConsecutive = 1, 1 })
+	loss := 50.0
+	h.step(time.Hour)
+	h.addTriggered("server", "wired", "ookla", "on_demand", 100, &loss)
+	h.addTriggered("server", "wired", "ookla", "on_demand", 100, &loss)
+	h.tick()
+	h.expectSent(0)
+	if a := h.alert("slow", serverSlow); a != nil && a.Streak != 0 {
+		t.Errorf("an on-demand test must not count towards a streak: %+v", a)
+	}
+	// nor do they move the device's typical speed: a scheduled 600 is judged against the scheduled 900, not a lower median
+	for i := 0; i < 30; i++ {
+		h.addTriggered("server", "wired", "ookla", "on_demand", 100, nil)
+	}
+	h.add(600)
+	h.tick()
+	h.expectSent(1)
 }
 
 func TestMonitorRecoveryIsSentOnce(t *testing.T) {
@@ -392,7 +437,7 @@ func TestMonitorPacketLoss(t *testing.T) {
 func TestMonitorEntitiesAreIndependent(t *testing.T) {
 	h := newHarness(t, nil)
 	for i := 0; i < 12; i++ { // a laptop with its own, much lower, normal
-		h.insert("laptop", "wireless", "ookla", "on_demand", t0.Add(-time.Duration(40-i)*time.Hour), 350, nil)
+		h.insert("laptop", "wireless", "ookla", "scheduled", t0.Add(-time.Duration(40-i)*time.Hour), 350, nil)
 	}
 	h.tick()
 	h.step(time.Hour)

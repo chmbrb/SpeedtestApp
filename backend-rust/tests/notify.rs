@@ -13,7 +13,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use common::Harness;
 use speedtest_backend::{
     notify::{
-        config::Config,
+        config::{Config, DEFAULT_OUTLIERS},
         monitor::Monitor,
         sender::{Message, SendError, Sender},
     },
@@ -91,18 +91,20 @@ fn monitor(cfg: &Config, db: &Store, send: &Arc<FakeSender>, clock: &Arc<Mutex<D
     Monitor::with_clock(cfg.clone(), db.clone(), send.clone(), Arc::new(move || *c.lock().unwrap()))
 }
 
-/// Twelve results of history (a typical download of 900 Mbps) for server/wired/ookla, then the first check, so the cursor sits at
-/// "now". Results added afterwards are the ones that can alert.
+/// Twelve scheduled results of history (a typical download of 900 Mbps) for server/wired/ookla, then the first check, so the
+/// cursor sits at "now". Results added afterwards are the ones that can alert. The streaks are 2 (not the default 1) so the tests
+/// can see a streak build up, and the "gone quiet" rule is kept out of the way.
 async fn rig(mutate: impl FnOnce(&mut Config)) -> Option<Rig> {
     let harness = Harness::new("UTC", None).await?;
-    let mut cfg = base_config();
+    let mut cfg =
+        Config { slow_consecutive: 2, loss_consecutive: 2, silence_min: std::time::Duration::from_secs(365 * 24 * 3600), ..base_config() };
     mutate(&mut cfg);
     let (pool, db) = (harness.pool.clone(), Store::new(harness.pool.clone()));
     let (clock, send) = (Arc::new(Mutex::new(t0())), Arc::new(FakeSender::default()));
     let m = monitor(&cfg, &db, &send, &clock);
     for i in 0..12 {
         let dl = if i % 2 == 0 { 920.0 } else { 880.0 };
-        insert(&pool, "server", "wired", "ookla", "on_demand", t0() - h(24 - i), dl, None).await;
+        insert(&pool, "server", "wired", "ookla", "scheduled", t0() - h(24 - i), dl, None).await;
     }
     let r = Rig { _h: harness, db, pool, clock, send, m, cfg, seq: 0 };
     r.tick().await;
@@ -132,11 +134,14 @@ impl Rig {
     fn now(&self) -> DateTime<Utc> {
         *self.clock.lock().unwrap()
     }
-    /// A result as if it had just arrived (on demand, so the "gone quiet" rule stays out of the way).
+    /// A scheduled result as if it had just arrived.
     async fn add_for(&mut self, device: &str, ct: &str, provider: &str, dl: f64, loss: Option<f64>) {
+        self.add_triggered(device, ct, provider, "scheduled", dl, loss).await;
+    }
+    async fn add_triggered(&mut self, device: &str, ct: &str, provider: &str, trigger: &str, dl: f64, loss: Option<f64>) {
         self.seq += 1;
         let at = self.now() - Duration::minutes(1) + Duration::seconds(self.seq);
-        insert(&self.pool, device, ct, provider, "on_demand", at, dl, loss).await;
+        insert(&self.pool, device, ct, provider, trigger, at, dl, loss).await;
     }
     async fn add(&mut self, dl: f64) {
         self.add_for("server", "wired", "ookla", dl, None).await;
@@ -162,7 +167,7 @@ async fn first_run_ignores_history() {
     let Some(harness) = Harness::new("UTC", None).await else { return };
     // a long slow history already in the database when notifications are first switched on
     for i in 0..20 {
-        insert(&harness.pool, "server", "wired", "ookla", "on_demand", t0() - h(30 - i), 100.0 + i as f64, None).await;
+        insert(&harness.pool, "server", "wired", "ookla", "scheduled", t0() - h(20 - i), 100.0 + i as f64, None).await;
     }
     let db = Store::new(harness.pool.clone());
     let (clock, send) = (Arc::new(Mutex::new(t0())), Arc::new(FakeSender::default()));
@@ -213,6 +218,41 @@ async fn needs_two_slow_tests_in_a_row_then_alerts_once() {
             && st.recent[0].delivered,
         "{st:?}"
     );
+}
+
+#[tokio::test]
+async fn defaults_to_one_outlier() {
+    let mut r = rig!(|c: &mut Config| (c.slow_consecutive, c.loss_consecutive) = (DEFAULT_OUTLIERS, DEFAULT_OUTLIERS));
+    r.step(h(1));
+    r.add(390.0).await;
+    r.tick().await;
+    r.expect_sent(1);
+    let m = r.sent().remove(0);
+    assert!(m.title == "Slow download: server (wired)" && m.body.contains("(1 test in a row)"), "{m:?}");
+    r.add_for("server", "wired", "ookla", 900.0, Some(8.0)).await;
+    r.tick().await;
+    r.expect_sent(3); // the slow alert recovers, and one lossy test is enough to alert
+    let got = r.titles().join("; ");
+    assert!(got.contains("Recovered: server (wired)") && got.contains("Packet loss: server (wired)"), "{got}");
+}
+
+#[tokio::test]
+async fn ignores_on_demand_tests() {
+    let mut r = rig!(|c: &mut Config| (c.slow_consecutive, c.loss_consecutive) = (1, 1));
+    r.step(h(1));
+    r.add_triggered("server", "wired", "ookla", "on_demand", 100.0, Some(50.0)).await;
+    r.add_triggered("server", "wired", "ookla", "on_demand", 100.0, Some(50.0)).await;
+    r.tick().await;
+    r.expect_sent(0);
+    let a = r.alert("slow", SERVER_SLOW).await;
+    assert!(a.as_ref().is_none_or(|a| a.streak == 0), "an on-demand test must not count towards a streak: {a:?}");
+    // nor do they move the device's typical speed: a scheduled 600 is judged against the scheduled 900, not a lower median
+    for _ in 0..30 {
+        r.add_triggered("server", "wired", "ookla", "on_demand", 100.0, None).await;
+    }
+    r.add(600.0).await;
+    r.tick().await;
+    r.expect_sent(1);
 }
 
 #[tokio::test]
@@ -396,7 +436,7 @@ async fn entities_are_independent() {
     let mut r = rig!();
     for i in 0..12 {
         // a laptop with its own, much lower, normal
-        insert(&r.pool, "laptop", "wireless", "ookla", "on_demand", t0() - h(40 - i), 350.0, None).await;
+        insert(&r.pool, "laptop", "wireless", "ookla", "scheduled", t0() - h(40 - i), 350.0, None).await;
     }
     r.tick().await;
     r.step(h(1));
@@ -501,7 +541,7 @@ async fn survives_a_restart() {
 
 #[tokio::test]
 async fn status_never_contains_the_topic_or_credentials() {
-    let mut r = rig!(|c: &mut Config| c.token = "tk_supersecret".into());
+    let mut r = rig!(|c: &mut Config| (c.token, c.silence_min) = ("tk_supersecret".into(), Config::default().silence_min));
     r.step(h(1));
     r.add(400.0).await;
     r.add(405.0).await;

@@ -119,15 +119,15 @@ impl Store {
             .map(|_| ())
     }
 
-    /// Results stored after the cursor, oldest first. `settled_before` leaves out the last few seconds so a transaction that
-    /// committed late is not skipped by a cursor that already moved past it.
+    /// Scheduled results stored after the cursor, oldest first (on-demand tests never alert). `settled_before` leaves out the last
+    /// few seconds so a transaction that committed late is not skipped by a cursor that already moved past it.
     pub async fn new_results(&self, after: &Cursor, settled_before: DateTime<Utc>, limit: i64) -> Result<Vec<ResultPoint>, sqlx::Error> {
         let id = (!after.id.is_empty()).then_some(after.id.as_str());
         sqlx::query(
             "SELECT id::text, created, tested_at, device, connection_type, provider, download_mbps, packet_loss_pct
 		FROM speedtests
 		WHERE (created, id) > ($1, COALESCE($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
-		  AND created <= $3
+		  AND created <= $3 AND \"trigger\" = 'scheduled'
 		ORDER BY created, id LIMIT $4",
         )
         .bind(after.t)
@@ -152,7 +152,7 @@ impl Store {
         .collect()
     }
 
-    /// The median download of an entity over the `days` before `before`, and how many tests that is.
+    /// The median download of an entity's scheduled tests over the `days` before `before`, and how many tests that is.
     pub async fn baseline(
         &self,
         device: &str,
@@ -164,7 +164,7 @@ impl Store {
         let r = sqlx::query(
             "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY download_mbps), count(*)
 		FROM speedtests
-		WHERE device = $1 AND connection_type = $2 AND provider = $3
+		WHERE device = $1 AND connection_type = $2 AND provider = $3 AND \"trigger\" = 'scheduled'
 		  AND tested_at < $4 AND tested_at >= $4 - make_interval(days => $5)",
         )
         .bind(device)

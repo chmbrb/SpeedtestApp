@@ -22,10 +22,11 @@ pub struct Config {
     pub slow_ratio: f64,
     /// Back to at least this fraction ends the alert (hysteresis).
     pub recover_ratio: f64,
-    /// Slow tests in a row before alerting.
+    /// Slow tests in a row before alerting (NTFY_OUTLIERS unless NTFY_SLOW_CONSECUTIVE is set).
     pub slow_consecutive: i64,
     /// Packet loss at or above this percent is "lossy".
     pub loss_pct: f64,
+    /// Lossy tests in a row before alerting (NTFY_OUTLIERS unless NTFY_LOSS_CONSECUTIVE is set).
     pub loss_consecutive: i64,
     /// Never call a device silent sooner than this.
     pub silence_min: Duration,
@@ -38,7 +39,11 @@ pub struct Config {
     pub check_every: Duration,
 }
 
-/// Defaults, chosen against real data: isolated slow tests are common, so one is never enough to alert.
+/// How many of a device's scheduled tests in a row must be outliers before anyone is told.
+pub const DEFAULT_OUTLIERS: i64 = 1;
+
+/// Defaults. Only scheduled tests are judged, each against its own device's history, so one outlier is enough by default; raise
+/// NTFY_OUTLIERS if isolated slow tests turn out to be noise.
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -51,9 +56,9 @@ impl Default for Config {
             app_url: String::new(),
             slow_ratio: 0.7,
             recover_ratio: 0.9,
-            slow_consecutive: 2,
+            slow_consecutive: DEFAULT_OUTLIERS,
             loss_pct: 5.0,
-            loss_consecutive: 2,
+            loss_consecutive: DEFAULT_OUTLIERS,
             silence_min: Duration::from_secs(3 * 3600),
             remind_every: Duration::from_secs(12 * 3600),
             baseline_days: 30,
@@ -147,6 +152,9 @@ impl Config {
             c.recover_ratio
         );
         set!(num("NTFY_LOSS_PCT", &|f| f > 0.0 && f <= 100.0), "NTFY_LOSS_PCT", "must be a percentage above 0 and at most 100", c.loss_pct);
+        // NTFY_OUTLIERS sets both streaks; NTFY_SLOW_CONSECUTIVE and NTFY_LOSS_CONSECUTIVE override it for one kind
+        set!(int("NTFY_OUTLIERS", 1), "NTFY_OUTLIERS", "must be a whole number, 1 or more", c.slow_consecutive);
+        c.loss_consecutive = c.slow_consecutive;
         set!(int("NTFY_SLOW_CONSECUTIVE", 1), "NTFY_SLOW_CONSECUTIVE", "must be a whole number, 1 or more", c.slow_consecutive);
         set!(int("NTFY_LOSS_CONSECUTIVE", 1), "NTFY_LOSS_CONSECUTIVE", "must be a whole number, 1 or more", c.loss_consecutive);
         set!(int("NTFY_BASELINE_DAYS", 1), "NTFY_BASELINE_DAYS", "must be a whole number of days, 1 or more", c.baseline_days);
@@ -212,7 +220,7 @@ mod tests {
         let c = Config::from_env(env(&[("NTFY_TOPIC", "home-net_1")])).unwrap();
         assert!(c.enabled);
         let d = Config::default();
-        assert_eq!((c.server_url.as_str(), c.slow_ratio, c.slow_consecutive), ("https://ntfy.sh", d.slow_ratio, 2));
+        assert_eq!((c.server_url.as_str(), c.slow_ratio, c.slow_consecutive, c.loss_consecutive), ("https://ntfy.sh", d.slow_ratio, 1, 1));
         assert_eq!(
             (c.silence_min, c.remind_every, c.check_every.as_secs()),
             (Duration::from_secs(3 * 3600), Duration::from_secs(12 * 3600), 60)
@@ -244,12 +252,21 @@ mod tests {
     }
 
     #[test]
+    fn outliers_sets_both_streaks_unless_overridden() {
+        let c = Config::from_env(env(&[("NTFY_TOPIC", "t"), ("NTFY_OUTLIERS", "3")])).unwrap();
+        assert_eq!((c.slow_consecutive, c.loss_consecutive), (3, 3), "NTFY_OUTLIERS applies to slow and loss");
+        let c = Config::from_env(env(&[("NTFY_TOPIC", "t"), ("NTFY_OUTLIERS", "3"), ("NTFY_LOSS_CONSECUTIVE", "2")])).unwrap();
+        assert_eq!((c.slow_consecutive, c.loss_consecutive), (3, 2), "a per-kind setting wins over NTFY_OUTLIERS");
+    }
+
+    #[test]
     fn bad_values_are_refused_and_every_problem_is_listed() {
         let cases: Vec<(&str, Vec<(&str, &str)>)> = vec![
             ("NTFY_TOPIC", vec![("NTFY_TOPIC", "has space")]),
             ("NTFY_URL", vec![("NTFY_URL", "ntfy.sh")]),
             ("NTFY_SLOW_RATIO", vec![("NTFY_SLOW_RATIO", "1")]),
             ("NTFY_RECOVER_RATIO", vec![("NTFY_RECOVER_RATIO", "0.6")]), // not above the slow ratio
+            ("NTFY_OUTLIERS", vec![("NTFY_OUTLIERS", "0")]),
             ("NTFY_SLOW_CONSECUTIVE", vec![("NTFY_SLOW_CONSECUTIVE", "0")]),
             ("NTFY_LOSS_PCT", vec![("NTFY_LOSS_PCT", "150")]),
             ("NTFY_MIN_SAMPLES", vec![("NTFY_MIN_SAMPLES", "1")]),

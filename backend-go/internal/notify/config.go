@@ -21,11 +21,11 @@ type Config struct {
 	Password  string
 	AppURL    string // opened when the notification is tapped; optional
 
-	SlowRatio       float64 // a download below this fraction of the device's typical speed is "slow"
-	RecoverRatio    float64 // back to at least this fraction ends the alert (hysteresis)
-	SlowConsecutive int     // slow tests in a row before alerting
-	LossPct         float64 // packet loss at or above this percent is "lossy"
-	LossConsecutive int
+	SlowRatio       float64       // a download below this fraction of the device's typical speed is "slow"
+	RecoverRatio    float64       // back to at least this fraction ends the alert (hysteresis)
+	SlowConsecutive int           // slow tests in a row before alerting (NTFY_OUTLIERS unless NTFY_SLOW_CONSECUTIVE is set)
+	LossPct         float64       // packet loss at or above this percent is "lossy"
+	LossConsecutive int           // lossy tests in a row before alerting (NTFY_OUTLIERS unless NTFY_LOSS_CONSECUTIVE is set)
 	SilenceMin      time.Duration // never call a device silent sooner than this
 	RemindEvery     time.Duration // 0 = no reminders
 	BaselineDays    int           // history used for "typical"
@@ -33,15 +33,19 @@ type Config struct {
 	CheckEvery      time.Duration
 }
 
-// Defaults, chosen against real data: isolated slow tests are common, so one is never enough to alert.
+// DefaultOutliers is how many of a device's scheduled tests in a row must be outliers before anyone is told.
+const DefaultOutliers = 1
+
+// Defaults. Only scheduled tests are judged, each against its own device's history, so one outlier is enough by default;
+// raise NTFY_OUTLIERS if isolated slow tests turn out to be noise.
 func Defaults() Config {
 	return Config{
 		ServerURL:       "https://ntfy.sh",
 		SlowRatio:       0.7,
 		RecoverRatio:    0.9,
-		SlowConsecutive: 2,
+		SlowConsecutive: DefaultOutliers,
 		LossPct:         5,
-		LossConsecutive: 2,
+		LossConsecutive: DefaultOutliers,
 		SilenceMin:      3 * time.Hour,
 		RemindEvery:     12 * time.Hour,
 		BaselineDays:    30,
@@ -123,6 +127,9 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	num("NTFY_SLOW_RATIO", &c.SlowRatio, func(f float64) bool { return f > 0 && f < 1 }, "must be between 0 and 1 (exclusive), e.g. 0.7")
 	num("NTFY_RECOVER_RATIO", &c.RecoverRatio, func(f float64) bool { return f > 0 && f <= 1 }, "must be above 0 and at most 1, e.g. 0.9")
 	num("NTFY_LOSS_PCT", &c.LossPct, func(f float64) bool { return f > 0 && f <= 100 }, "must be a percentage above 0 and at most 100")
+	// NTFY_OUTLIERS sets both streaks; NTFY_SLOW_CONSECUTIVE and NTFY_LOSS_CONSECUTIVE override it for one kind
+	integer("NTFY_OUTLIERS", &c.SlowConsecutive, 1, "must be a whole number, 1 or more")
+	c.LossConsecutive = c.SlowConsecutive
 	integer("NTFY_SLOW_CONSECUTIVE", &c.SlowConsecutive, 1, "must be a whole number, 1 or more")
 	integer("NTFY_LOSS_CONSECUTIVE", &c.LossConsecutive, 1, "must be a whole number, 1 or more")
 	integer("NTFY_BASELINE_DAYS", &c.BaselineDays, 1, "must be a whole number of days, 1 or more")

@@ -73,6 +73,8 @@ services:
       NTFY_URL: http://ntfy
       NTFY_USER: ntfy-backend
       NTFY_PASSWORD: ${NTFY_BACKEND_PASSWORD:-}
+      # How many scheduled tests in a row must be outliers (slow, or lossy) before a notification; empty means 1.
+      NTFY_OUTLIERS: ${NTFY_OUTLIERS:-}
       APP_URL: ${APP_URL:-}
       # The optional dashboard login: with a password here (8 characters or more) the dashboard asks for it; empty means open.
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}

@@ -27,7 +27,7 @@ func TestConfigDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("%+v %v", c, err)
 	}
 	d := Defaults()
-	if c.ServerURL != "https://ntfy.sh" || c.SlowRatio != d.SlowRatio || c.SlowConsecutive != 2 || c.SilenceMin != 3*time.Hour || c.RemindEvery != 12*time.Hour {
+	if c.ServerURL != "https://ntfy.sh" || c.SlowRatio != d.SlowRatio || c.SlowConsecutive != 1 || c.LossConsecutive != 1 || c.SilenceMin != 3*time.Hour || c.RemindEvery != 12*time.Hour {
 		t.Errorf("defaults not applied: %+v", c)
 	}
 	c, err = FromEnv(env(map[string]string{
@@ -44,12 +44,24 @@ func TestConfigDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestConfigOutliersSetsBothStreaksUnlessOverridden(t *testing.T) {
+	c, err := FromEnv(env(map[string]string{"NTFY_TOPIC": "t", "NTFY_OUTLIERS": "3"}))
+	if err != nil || c.SlowConsecutive != 3 || c.LossConsecutive != 3 {
+		t.Errorf("NTFY_OUTLIERS applies to slow and loss: %+v %v", c, err)
+	}
+	c, err = FromEnv(env(map[string]string{"NTFY_TOPIC": "t", "NTFY_OUTLIERS": "3", "NTFY_LOSS_CONSECUTIVE": "2"}))
+	if err != nil || c.SlowConsecutive != 3 || c.LossConsecutive != 2 {
+		t.Errorf("a per-kind setting wins over NTFY_OUTLIERS: %+v %v", c, err)
+	}
+}
+
 func TestConfigRejectsBadValuesWithAllProblemsListed(t *testing.T) {
 	cases := map[string]map[string]string{
 		"NTFY_TOPIC":            {"NTFY_TOPIC": "has space"},
 		"NTFY_URL":              {"NTFY_URL": "ntfy.sh"},
 		"NTFY_SLOW_RATIO":       {"NTFY_SLOW_RATIO": "1"},
 		"NTFY_RECOVER_RATIO":    {"NTFY_RECOVER_RATIO": "0.6"}, // not above the slow ratio
+		"NTFY_OUTLIERS":         {"NTFY_OUTLIERS": "0"},
 		"NTFY_SLOW_CONSECUTIVE": {"NTFY_SLOW_CONSECUTIVE": "0"},
 		"NTFY_LOSS_PCT":         {"NTFY_LOSS_PCT": "150"},
 		"NTFY_MIN_SAMPLES":      {"NTFY_MIN_SAMPLES": "1"},

@@ -68,9 +68,12 @@ The server can tell you on your phone when something is wrong, through [ntfy](ht
    It sends one message and says whether it was delivered. Quiet hours and sounds are set in the ntfy app.
 
 **When you are notified** (the dashboard's Notifications section shows the same sentences with your numbers)
-- **Slow downloads:** below 70% of a device's own typical speed (the median of its last 30 days) for 2 tests in a row. One slow
-  test is only noise; real data has several. It ends when the speed is back above 90%.
-- **Packet loss:** 5% or more for 2 tests in a row.
+Only scheduled tests are judged, and each one only against the history of the same device, connection type and provider: the
+server against the server, `laptop_1` against `laptop_1`. On-demand tests (the dashboard's "Run a test") never notify and do not
+count towards anyone's "typical".
+- **Slow downloads:** below 70% of a device's own typical speed (the median of its scheduled tests over the last 30 days) for
+  `NTFY_OUTLIERS` tests in a row (1 unless set). It ends when the speed is back above 90%.
+- **Packet loss:** 5% or more for `NTFY_OUTLIERS` tests in a row.
 - **Gone quiet:** a device stops running its scheduled tests: nothing for three times its usual interval, and never sooner
   than 3 hours. A server that tests every 2 hours is silent after 6; a laptop that tests every 8 hours after 24. Devices that are
   only tested by hand are never "silent", and a device with no scheduled test for two weeks is treated as retired.
@@ -84,8 +87,9 @@ Turning notifications on never alerts about old results. If delivery fails the a
 |---|---|---|
 | `NTFY_SLOW_RATIO` | `0.7` | slow below this fraction of typical |
 | `NTFY_RECOVER_RATIO` | `0.9` | back above this ends the alert (must be higher than the slow ratio) |
-| `NTFY_SLOW_CONSECUTIVE` | `2` | slow tests in a row before alerting |
-| `NTFY_LOSS_PCT` / `NTFY_LOSS_CONSECUTIVE` | `5` / `2` | packet loss threshold (percent) and tests in a row |
+| `NTFY_OUTLIERS` | `1` | outlier tests in a row (slow or lossy) before alerting |
+| `NTFY_SLOW_CONSECUTIVE` | `NTFY_OUTLIERS` | slow tests in a row before alerting, if it should differ from `NTFY_OUTLIERS` |
+| `NTFY_LOSS_PCT` / `NTFY_LOSS_CONSECUTIVE` | `5` / `NTFY_OUTLIERS` | packet loss threshold (percent) and tests in a row |
 | `NTFY_SILENCE_MIN_HOURS` | `3` | never call a device silent sooner than this |
 | `NTFY_REMIND_HOURS` | `12` | `0` turns reminders off |
 | `NTFY_BASELINE_DAYS` / `NTFY_MIN_SAMPLES` | `30` / `10` | history that defines "typical", and tests needed before judging |
